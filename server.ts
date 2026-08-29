@@ -166,6 +166,28 @@ function createOrRepairDatabase(dbPath: string) {
           PRIMARY KEY (user_id, date)
       )`);
 
+      database.exec(`CREATE TABLE IF NOT EXISTS telegram_support_config (
+          key TEXT PRIMARY KEY,
+          value TEXT
+      )`);
+
+      database.exec(`CREATE TABLE IF NOT EXISTS telegram_support_users (
+          chat_id INTEGER PRIMARY KEY,
+          username TEXT,
+          first_name TEXT,
+          last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          message_count INTEGER DEFAULT 1
+      )`);
+
+      database.exec(`CREATE TABLE IF NOT EXISTS telegram_support_logs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          chat_id INTEGER,
+          username TEXT,
+          role TEXT,
+          text TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )`);
+
       // Performance Optimization: Targeted high-speed Indexes
       database.exec(`
           CREATE INDEX IF NOT EXISTS idx_bots_owner ON bots(owner_id);
@@ -175,6 +197,8 @@ function createOrRepairDatabase(dbPath: string) {
           CREATE INDEX IF NOT EXISTS idx_profiles_email ON profiles(email);
           CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(userId, read);
           CREATE INDEX IF NOT EXISTS idx_daily_usage_user_date ON daily_usage(user_id, date);
+          CREATE INDEX IF NOT EXISTS idx_tg_logs_chat ON telegram_support_logs(chat_id, id);
+          CREATE INDEX IF NOT EXISTS idx_tg_logs_created ON telegram_support_logs(created_at);
       `);
 
       // Maintenance: Auto-prune bot logs older than 7 days to preserve disk space & speed
@@ -2008,6 +2032,385 @@ async function callGeminiContentWithFallback(params: {
     throw lastError || new Error("Barcha Gemini zaxira modellarida so'rovni bajarib bo'lmadi.");
 }
 
+// =========================================================================
+// 24/7 CLOUDBOT TELEGRAM AI SUPPORT ASSISTANT (BACKGROUND WORKER)
+// =========================================================================
+let telegramBotRunning = false;
+let telegramBotWorkerActive = false;
+let telegramBotLastPollTime: number = 0;
+let telegramBotLastError: string | null = null;
+let telegramBotReloadCounter = 0;
+
+function getTelegramSupportConfig() {
+  let token = (process.env.TELEGRAM_SUPPORT_BOT_TOKEN || process.env.BOT_TOKEN || "").trim();
+  let adminId = (process.env.TELEGRAM_ADMIN_ID || process.env.ADMIN_ID || "").trim();
+  let enabled = "1";
+
+  try {
+    const rows = db.prepare("SELECT key, value FROM telegram_support_config").all() as any[];
+    for (const r of rows) {
+      if (r.key === 'bot_token' && r.value) token = r.value.trim();
+      if (r.key === 'admin_id' && r.value) adminId = r.value.trim();
+      if (r.key === 'enabled') enabled = r.value.trim();
+    }
+  } catch (_) {}
+
+  return {
+    botToken: token,
+    adminId: adminId,
+    enabled: enabled !== '0'
+  };
+}
+
+async function sendTelegramMessage(botToken: string, chatId: number | string, text: string, parseMode: string = 'HTML', businessConnectionId?: string) {
+  if (!botToken || !chatId || !text) return;
+  const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+  
+  const chunks: string[] = [];
+  let remaining = text;
+  while (remaining.length > 4000) {
+    let splitIdx = remaining.lastIndexOf('\n', 4000);
+    if (splitIdx === -1) splitIdx = 4000;
+    chunks.push(remaining.substring(0, splitIdx));
+    remaining = remaining.substring(splitIdx).trim();
+  }
+  if (remaining.length > 0) chunks.push(remaining);
+
+  for (const chunk of chunks) {
+    try {
+      const payload: any = {
+        chat_id: chatId,
+        text: chunk,
+        parse_mode: parseMode
+      };
+      if (businessConnectionId) {
+        payload.business_connection_id = businessConnectionId;
+      }
+
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!resp.ok && parseMode === 'HTML') {
+        const fallbackPayload: any = {
+          chat_id: chatId,
+          text: chunk
+        };
+        if (businessConnectionId) {
+          fallbackPayload.business_connection_id = businessConnectionId;
+        }
+        await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(fallbackPayload)
+        });
+      }
+    } catch (e) {
+      console.warn(`[Telegram send error]:`, e);
+    }
+  }
+}
+
+async function sendTelegramChatAction(botToken: string, chatId: number | string, action: string = 'typing', businessConnectionId?: string) {
+  if (!botToken || !chatId) return;
+  try {
+    const payload: any = { chat_id: chatId, action };
+    if (businessConnectionId) {
+      payload.business_connection_id = businessConnectionId;
+    }
+    await fetch(`https://api.telegram.org/bot${botToken}/sendChatAction`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  } catch (_) {}
+}
+
+const CLOUDBOT_TELEGRAM_SUPPORT_PROMPT = `
+Siz CloudBot.uz platformasining 24/7 rejimida ishlaydigan rasmiy virtual xodimi va AI maslahatchisisiz (Botly AI).
+Sizning vazifangiz — Telegram orqali murojaat qilgan mijozlar va foydalanuvchilar bilan muloyim, professional, samimiy va ishonchli muloqot qilish, CloudBot.uz xizmatlarini tushuntirish va bot yuklash bo'yicha yordam berish.
+
+ASOSIY BILIMLAR VA QOIDALAR:
+1. CloudBot.uz platformasi haqida:
+   - Bu O'zbekistondagi eng tezkor, qulay va arzon Telegram/Discord botlar xosting platformasi.
+   - Python (aiogram, telebot, pyTelegramBotAPI) va Node.js (telegraf, grammy) botlarini to'liq qo'llab-quvvatlaydi.
+   - Botlar 24/7 qotmasdan, uzluksiz va yuqori tezlikda ishlaydi.
+   - Avtomatik kutubxona o'rnatish (pip/requirements.txt, npm/package.json) va xatolarni avtomatik tuzatuvchi Botly AI mavjud.
+
+2. Tariflar:
+   - Bepul (Free): 2 tagacha bot, 2 oy muddat, ish vaqti 07:25 dan 21:00 gacha (O'zb vaqti), Botly AI 45 token/kun.
+   - Pro ($20/oy): 10 tagacha bot, 10 oy muddat, ish vaqti 06:30 dan 22:35 gacha (O'zb vaqti), Botly AI 145 token/kun, prioritet qo'llab-quvvatlash.
+   - VIP ($35/oy): 30 tagacha bot, cheksiz umrbod muddat, ish vaqti 04:00 dan 00:00 (yarim kecha) gacha, Botly AI 500 token/kun, maksimal server tezligi.
+
+3. Platformaga bot yuklash tartibi:
+   - 1. CloudBot.uz saytiga kirish va ro'yxatdan o'tish (Google yoki Email orqali).
+   - 2. "Bot Yuklash" (Upload) tugmasini bosish.
+   - 3. Bot kodini ZIP arxiv qilib yuklash (ichida bot.py yoki index.js va requirements.txt bo'lishi kerak) yoki GitHub havola orqali import qilish.
+   - 4. "Ishga tushirish" tugmasini bosish — bot avtomatik ishga tushadi.
+
+4. Nega aynan CloudBot.uz ni tanlash kerak:
+   - Qimmat va murakkab VPS serverlarni sozlashga hojat yo'q (terminal buyruqlari kerak emas).
+   - O'zbekiston ichida ping juda past va ulanish tezligi yuqori.
+   - Bot xato qilsa, sun'iy intellekt xatoni topib, avtomatik tuzatish taklif qiladi.
+   - Juda arzon narxlar va qulay to'lov usullari.
+
+5. XAVFSIZLIK VA MAXFIYLIK (QAT'IY CHEKLOV):
+   - Hech qachon server parollari, API kalitlar, ma'lumotlar bazasi tuzilishi, shaxsiy tokenlar, .env fayllari yoki platformaning ichki server kodlarini oshkor qilmang.
+   - Agar foydalanuvchi tizim sirlarini so'rasa: "Kechirasiz, xavfsizlik qoidalariga binoan ichki texnik ma'lumotlar sir saqlanadi." deb javob bering.
+
+6. Javob berish uslubi:
+   - Faqat foydalanuvchi so'ragan masalaga lo'nda, aniq, muloyim va tushunarli qilib javob bering.
+   - O'zbek tilida sof, adabiy va professional ohangda gaplashing. Ortiqcha keraksiz emojilardan saqlaning.
+`;
+
+async function handleTelegramSupportMessage(botToken: string, adminId: string, message: any, businessConnectionId?: string) {
+  if (!message || !message.chat || !message.chat.id) return;
+  const chatId = message.chat.id;
+  const fromUser = message.from || {};
+  const fromId = fromUser.id || chatId;
+  const text = (message.text || '').trim();
+  const username = fromUser.username || '';
+  const firstName = fromUser.first_name || '';
+
+  if (!text) return;
+
+  // Foydalanuvchini ro'yxatga olish / yangilash
+  try {
+    db.prepare(`
+      INSERT INTO telegram_support_users (chat_id, username, first_name, last_seen, message_count)
+      VALUES (?, ?, ?, datetime('now'), 1)
+      ON CONFLICT(chat_id) DO UPDATE SET
+        username = excluded.username,
+        first_name = excluded.first_name,
+        last_seen = datetime('now'),
+        message_count = message_count + 1
+    `).run(chatId, username, firstName);
+  } catch (_) {}
+
+  // 1. /start buyrug'i
+  if (text === '/start' || text.startsWith('/start ')) {
+    const welcomeMsg = `Assalomu alaykum, <b>${firstName || 'foydalanuvchi'}</b>!\n\nMen <b>CloudBot.uz</b> platformasining 24/7 rasmiy virtual AI yordamchisiman (Botly AI).\n\nSizga qanday yordam bera olaman?\n• Botni platformaga qanday yuklash (ZIP yoki GitHub orqali)\n• Obuna tariflari (Free, Pro, VIP) va imkoniyatlar\n• Nega aynan CloudBot.uz ni tanlash kerakligi\n• Dasturlash tillari (Python, Node.js) va texnik talablar\n\nSavolingizni bemalol yozib qoldirishingiz mumkin!`;
+    
+    try {
+      db.prepare("INSERT INTO telegram_support_logs (chat_id, username, role, text) VALUES (?, ?, 'user', ?)").run(chatId, username, text);
+      db.prepare("INSERT INTO telegram_support_logs (chat_id, username, role, text) VALUES (?, ?, 'assistant', ?)").run(chatId, username, welcomeMsg);
+    } catch (_) {}
+
+    await sendTelegramMessage(botToken, chatId, welcomeMsg, 'HTML', businessConnectionId);
+    return;
+  }
+
+  // 2. /admin buyrug'i (Statistika)
+  if (text === '/admin' || text.startsWith('/admin ')) {
+    const isUserAdmin = adminId && (String(fromId) === String(adminId) || String(chatId) === String(adminId));
+    if (isUserAdmin) {
+      let totalUsers = 0;
+      let proUsers = 0;
+      let vipUsers = 0;
+      let freeUsers = 0;
+      let totalBots = 0;
+      let runningBotsCount = 0;
+      let totalAiUsers = 0;
+      let totalAiQueries = 0;
+      let todayAiQueries = 0;
+
+      try {
+        const userCountRow = db.prepare("SELECT count(distinct user_id) as c FROM profiles").get() as any;
+        totalUsers = userCountRow?.c || 0;
+        
+        const subRows = db.prepare("SELECT plan, count(*) as c FROM subscriptions GROUP BY plan").all() as any[];
+        for (const sr of subRows) {
+          if (sr.plan === 'pro') proUsers = sr.c;
+          else if (sr.plan === 'vip') vipUsers = sr.c;
+          else freeUsers += sr.c;
+        }
+        if (totalUsers < (proUsers + vipUsers + freeUsers)) {
+          totalUsers = proUsers + vipUsers + freeUsers;
+        }
+
+        const botStatsRow = db.prepare("SELECT count(*) as total, sum(case when status='running' then 1 else 0 end) as running FROM bots").get() as any;
+        totalBots = botStatsRow?.total || 0;
+        runningBotsCount = botStatsRow?.running || 0;
+
+        const aiUsersRow = db.prepare("SELECT count(*) as c FROM telegram_support_users").get() as any;
+        totalAiUsers = aiUsersRow?.c || 0;
+
+        const aiMsgsRow = db.prepare("SELECT count(*) as c FROM telegram_support_logs WHERE role = 'user'").get() as any;
+        totalAiQueries = aiMsgsRow?.c || 0;
+
+        const todayMsgsRow = db.prepare("SELECT count(*) as c FROM telegram_support_logs WHERE role = 'user' AND date(created_at) = date('now')").get() as any;
+        todayAiQueries = todayMsgsRow?.c || 0;
+      } catch (e) {
+        console.warn("Error gathering admin stats:", e);
+      }
+
+      const uzbTime = getUzbekistanTime();
+      const uptimeHours = Math.floor(process.uptime() / 3600);
+      const uptimeMins = Math.floor((process.uptime() % 3600) / 60);
+
+      const adminReport = `
+<b>CloudBot.uz Boshqaruv & Statistika Hisoboti</b>
+
+<b>Platforma foydalanuvchilari:</b>
+• Jami foydalanuvchilar: <b>${totalUsers}</b> ta
+• PRO obunachilar ($20/oy): <b>${proUsers}</b> ta
+• VIP obunachilar ($35/oy): <b>${vipUsers}</b> ta
+• Bepul tarifdagilar: <b>${freeUsers}</b> ta
+
+<b>Botlar holati:</b>
+• Jami yuklangan botlar: <b>${totalBots}</b> ta
+• Hozirda faol ishlayotganlar: <b>${runningBotsCount}</b> ta
+
+<b>24/7 Telegram AI Yordamchi:</b>
+• Murojaat qilgan mijozlar: <b>${totalAiUsers}</b> ta
+• Jami savol-javoblar: <b>${totalAiQueries}</b> ta
+• Bugungi so'rovlar: <b>${todayAiQueries}</b> ta
+
+<b>Tizim vaqti:</b> ${uzbTime.timeStr} (Asia/Tashkent)
+<b>Server holati:</b> 24/7 Barqaror (Uptime: ${uptimeHours} soat ${uptimeMins} daqiqa)
+`.trim();
+
+      await sendTelegramMessage(botToken, chatId, adminReport, 'HTML', businessConnectionId);
+      return;
+    } else {
+      await sendTelegramMessage(botToken, chatId, "Kechirasiz, ushbu buyruq faqat CloudBot.uz boshqaruvchi administratori uchun mo'ljallangan.", 'HTML', businessConnectionId);
+      return;
+    }
+  }
+
+  // 3. Foydalanuvchi bilan AI suhbati (Asinxron)
+  try {
+    db.prepare("INSERT INTO telegram_support_logs (chat_id, username, role, text) VALUES (?, ?, 'user', ?)").run(chatId, username, text);
+  } catch (_) {}
+
+  // Yozish harakatini ko'rsatish
+  await sendTelegramChatAction(botToken, chatId, 'typing', businessConnectionId);
+
+  // Oxirgi suhbatlar tarixini olish
+  let conversationHistory: any[] = [];
+  try {
+    const recentLogs = db.prepare("SELECT role, text FROM telegram_support_logs WHERE chat_id = ? ORDER BY id DESC LIMIT 8").all(chatId) as any[];
+    recentLogs.reverse().forEach(log => {
+      conversationHistory.push({
+        role: log.role === 'user' ? 'user' : 'model',
+        parts: [{ text: log.text }]
+      });
+    });
+  } catch (_) {}
+
+  let replyText = "";
+  try {
+    const geminiRes = await callGeminiContentWithFallback({
+      contents: [
+        { role: 'user', parts: [{ text: CLOUDBOT_TELEGRAM_SUPPORT_PROMPT }] },
+        ...conversationHistory
+      ],
+      preferredModel: 'gemini-2.5-flash'
+    });
+    replyText = (geminiRes.text || "").trim();
+  } catch (err: any) {
+    console.error("[Telegram Gemini Error]:", err);
+    replyText = "Hozirda so'rovingizni qayta ishlashda qiyinchilik bo'ldi. Iltimos, birozdan so'ng qayta urinib ko'ring yoki saytimizdagi Qo'llanma (Docs) bo'limini ko'rib chiqing.";
+  }
+
+  if (!replyText) {
+    replyText = "Kechirasiz, savolingizni aniqroq shakllantira olasizmi? CloudBot.uz bo'yicha har qanday savolingizga yordam berishga tayyorman.";
+  }
+
+  try {
+    db.prepare("INSERT INTO telegram_support_logs (chat_id, username, role, text) VALUES (?, ?, 'assistant', ?)").run(chatId, username, replyText);
+  } catch (_) {}
+
+  await sendTelegramMessage(botToken, chatId, replyText, 'HTML', businessConnectionId);
+}
+
+async function startTelegramSupportBotWorker() {
+  if (telegramBotWorkerActive) return;
+  telegramBotWorkerActive = true;
+
+  let lastOffset = 0;
+
+  console.log("[Telegram AI Support Worker]: Fondagi jarayon ishga tushdi.");
+
+  while (true) {
+    const config = getTelegramSupportConfig();
+    if (!config.enabled || !config.botToken || config.botToken.length < 15) {
+      telegramBotRunning = false;
+      await new Promise(r => setTimeout(r, 6000));
+      continue;
+    }
+
+    try {
+      telegramBotRunning = true;
+      telegramBotLastPollTime = Date.now();
+      telegramBotLastError = null;
+
+      const pollUrl = `https://api.telegram.org/bot${config.botToken}/getUpdates`;
+      const res = await fetch(pollUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          offset: lastOffset,
+          timeout: 20,
+          allowed_updates: [
+            "message",
+            "edited_message",
+            "business_connection",
+            "business_message",
+            "edited_business_message"
+          ]
+        }),
+        signal: AbortSignal.timeout(28000)
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        telegramBotLastError = errJson.description || `HTTP ${res.status}`;
+        console.warn(`[Telegram Support Bot Poll Error]: ${telegramBotLastError}`);
+        await new Promise(r => setTimeout(r, 8000));
+        continue;
+      }
+
+      const data = await res.json();
+      if (data.ok && Array.isArray(data.result)) {
+        for (const update of data.result) {
+          if (update.update_id >= lastOffset) {
+            lastOffset = update.update_id + 1;
+          }
+
+          // 1. Oddiy xabar
+          if (update.message) {
+            handleTelegramSupportMessage(config.botToken, config.adminId, update.message).catch(e => {
+              console.warn("[Telegram message handling error]:", e);
+            });
+          }
+          // 2. Telegram Biznes xabarlari (Business Chatbot)
+          else if (update.business_message) {
+            const bizMsg = update.business_message;
+            const bizConnId = bizMsg.business_connection_id;
+            handleTelegramSupportMessage(config.botToken, config.adminId, bizMsg, bizConnId).catch(e => {
+              console.warn("[Telegram business message handling error]:", e);
+            });
+          }
+          // 3. Telegram Biznes ulanishi holati
+          else if (update.business_connection) {
+            const conn = update.business_connection;
+            console.log(`[Telegram Business Connection Update]: ID=${conn.id}, User=${conn.user_id}, CanReply=${conn.can_reply}, IsEnabled=${conn.is_enabled}`);
+          }
+        }
+      }
+    } catch (pollErr: any) {
+      const errMsg = pollErr?.message || String(pollErr);
+      if (!errMsg.includes("aborted") && !errMsg.includes("Timeout")) {
+        telegramBotLastError = errMsg;
+        console.warn("[Telegram Support Bot network loop warning]:", errMsg.slice(0, 100));
+      }
+      await new Promise(r => setTimeout(r, 4000));
+    }
+  }
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -2818,6 +3221,128 @@ async function startServer() {
     } catch (err: any) {
       console.error("Admin users list error:", err);
       res.status(500).json({ error: "Foydalanuvchilar ro'yxatini olishda xatolik" });
+    }
+  });
+
+  // -------------------------------------------------------------
+  // TELEGRAM 24/7 AI SUPPORT BOT ADMIN API
+  // -------------------------------------------------------------
+  app.get("/api/admin/telegram-bot", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const userEmail = req.user?.email || '';
+      let isUserAdmin = userEmail === 'ismoilovshohjahon750@gmail.com';
+      if (!isUserAdmin && req.user?.uid) {
+        try {
+          if (adminDb && !isFirestoreQuotaExhausted()) {
+            const roleDoc = await adminDb.collection('user_roles').doc(req.user.uid).get();
+            if (roleDoc.exists && roleDoc.data()?.role === 'admin') isUserAdmin = true;
+          }
+        } catch (_) {}
+      }
+      if (!isUserAdmin) return res.status(403).json({ error: "Sizda admin huquqi yo'q" });
+
+      const config = getTelegramSupportConfig();
+      const maskedToken = config.botToken 
+        ? (config.botToken.length > 10 ? `${config.botToken.substring(0, 5)}...${config.botToken.substring(config.botToken.length - 4)}` : '****')
+        : '';
+
+      let botInfo: any = null;
+      if (config.botToken) {
+        try {
+          const bRes = await fetch(`https://api.telegram.org/bot${config.botToken}/getMe`);
+          const bData = await bRes.json();
+          if (bData.ok && bData.result) {
+            botInfo = {
+              id: bData.result.id,
+              username: bData.result.username,
+              firstName: bData.result.first_name,
+              canConnectToBusiness: !!bData.result.can_connect_to_business,
+              canJoinGroups: !!bData.result.can_join_groups
+            };
+          }
+        } catch (botErr) {
+          console.warn("Failed to get bot info from telegram:", botErr);
+        }
+      }
+
+      const usersCountRow = db.prepare("SELECT count(*) as c FROM telegram_support_users").get() as any;
+      const msgsCountRow = db.prepare("SELECT count(*) as c FROM telegram_support_logs WHERE role = 'user'").get() as any;
+      const todayMsgsRow = db.prepare("SELECT count(*) as c FROM telegram_support_logs WHERE role = 'user' AND date(created_at) = date('now')").get() as any;
+      
+      const recentLogs = db.prepare("SELECT id, chat_id, username, role, text, created_at FROM telegram_support_logs ORDER BY id DESC LIMIT 50").all();
+
+      res.json({
+        hasToken: !!config.botToken,
+        tokenMasked: maskedToken,
+        adminId: config.adminId,
+        enabled: config.enabled,
+        isRunning: telegramBotRunning,
+        lastError: telegramBotLastError,
+        botInfo,
+        stats: {
+          totalUsers: usersCountRow?.c || 0,
+          totalQueries: msgsCountRow?.c || 0,
+          todayQueries: todayMsgsRow?.c || 0,
+          lastPollTime: telegramBotLastPollTime ? new Date(telegramBotLastPollTime).toISOString() : null
+        },
+        recentLogs
+      });
+    } catch (e: any) {
+      console.error("GET /api/admin/telegram-bot error:", e);
+      res.status(500).json({ error: "Ma'lumotlarni olishda xatolik" });
+    }
+  });
+
+  app.post("/api/admin/telegram-bot", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const userEmail = req.user?.email || '';
+      let isUserAdmin = userEmail === 'ismoilovshohjahon750@gmail.com';
+      if (!isUserAdmin && req.user?.uid) {
+        try {
+          if (adminDb && !isFirestoreQuotaExhausted()) {
+            const roleDoc = await adminDb.collection('user_roles').doc(req.user.uid).get();
+            if (roleDoc.exists && roleDoc.data()?.role === 'admin') isUserAdmin = true;
+          }
+        } catch (_) {}
+      }
+      if (!isUserAdmin) return res.status(403).json({ error: "Sizda admin huquqi yo'q" });
+
+      const { botToken, adminId, enabled } = req.body || {};
+
+      if (typeof botToken === 'string' && botToken.trim()) {
+        db.prepare("INSERT OR REPLACE INTO telegram_support_config (key, value) VALUES ('bot_token', ?)").run(botToken.trim());
+      }
+      if (typeof adminId === 'string' || typeof adminId === 'number') {
+        db.prepare("INSERT OR REPLACE INTO telegram_support_config (key, value) VALUES ('admin_id', ?)").run(String(adminId).trim());
+      }
+      if (enabled !== undefined) {
+        db.prepare("INSERT OR REPLACE INTO telegram_support_config (key, value) VALUES ('enabled', ?)").run(enabled ? '1' : '0');
+      }
+
+      telegramBotReloadCounter++;
+
+      const currentConf = getTelegramSupportConfig();
+      let botUsername = "";
+      if (currentConf.botToken) {
+        try {
+          const testRes = await fetch(`https://api.telegram.org/bot${currentConf.botToken}/getMe`);
+          const testData = await testRes.json();
+          if (testData.ok && testData.result) {
+            botUsername = testData.result.username;
+          }
+        } catch (_) {}
+      }
+
+      res.json({
+        success: true,
+        message: botUsername 
+          ? `Sozlamalar saqlandi. Bot muvaffaqiyatli ulandi: @${botUsername}` 
+          : "Sozlamalar muvaffaqiyatli saqlandi",
+        botUsername
+      });
+    } catch (e: any) {
+      console.error("POST /api/admin/telegram-bot error:", e);
+      res.status(500).json({ error: "Sozlamalarni saqlashda xatolik" });
     }
   });
 
@@ -5213,6 +5738,10 @@ async function restoreAndSuperviseBots() {
       console.error("Supervisor schedule loop error:", e);
     }
   }, 10000);
+  // Start 24/7 Telegram AI Support Bot worker in background
+  startTelegramSupportBotWorker().catch(err => {
+    console.error("[Telegram AI Support Worker error]:", err);
+  });
 }
 
 startServer();

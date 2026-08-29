@@ -5,7 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
-import { Shield, Search, UserCheck, Crown, Zap, Bot, MessageSquare, Save, RefreshCw, Copy, Check, Calendar, BellRing, Send, Trash2, Paperclip, CheckCheck, User } from 'lucide-react';
+import { Shield, Search, UserCheck, Crown, Zap, Bot, MessageSquare, Save, RefreshCw, Copy, Check, Calendar, BellRing, Send, Trash2, Paperclip, CheckCheck, User, Headphones, Sparkles, CheckCircle2, AlertCircle, Eye, EyeOff, Activity, Radio, ExternalLink, Link2, Smartphone, MessageCircle, AlertTriangle } from 'lucide-react';
 import { LogoIcon } from '../components/Logo';
 import { collection, onSnapshot, doc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -56,6 +56,72 @@ export const Admin: React.FC = () => {
   const [msgSearch, setMsgSearch] = useState('');
   const [chatReply, setChatReply] = useState('');
   const [sendingReply, setSendingReply] = useState(false);
+
+  // 24/7 Telegram AI Support Bot States
+  const [tgToken, setTgToken] = useState('');
+  const [tgAdminId, setTgAdminId] = useState('');
+  const [tgEnabled, setTgEnabled] = useState(true);
+  const [showTgToken, setShowTgToken] = useState(false);
+  const [tgStatus, setTgStatus] = useState<any>(null);
+  const [loadingTg, setLoadingTg] = useState(false);
+  const [savingTg, setSavingTg] = useState(false);
+
+  const fetchTgStatus = async () => {
+    try {
+      setLoadingTg(true);
+      const token = await user?.getIdToken();
+      const res = await fetch('/api/admin/telegram-bot', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTgStatus(data);
+        if (data.adminId) setTgAdminId(data.adminId);
+        if (data.enabled !== undefined) setTgEnabled(data.enabled);
+      }
+    } catch (e) {
+      console.warn("Fetch telegram bot status error:", e);
+    } finally {
+      setLoadingTg(false);
+    }
+  };
+
+  const handleSaveTgConfig = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    try {
+      setSavingTg(true);
+      const token = await user?.getIdToken();
+      const payload: any = {
+        adminId: tgAdminId.trim(),
+        enabled: tgEnabled
+      };
+      if (tgToken.trim()) {
+        payload.botToken = tgToken.trim();
+      }
+
+      const res = await fetch('/api/admin/telegram-bot', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(data.message || "Telegram AI bot sozlamalari muvaffaqiyatli saqlandi!");
+        setTgToken('');
+        await fetchTgStatus();
+      } else {
+        toast.error(data.error || "Sozlamalarni saqlashda xatolik yuz berdi");
+      }
+    } catch (e) {
+      toast.error("Server bilan ulanishda xatolik");
+    } finally {
+      setSavingTg(false);
+    }
+  };
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -120,6 +186,7 @@ export const Admin: React.FC = () => {
       }
     };
     fetchApiBots();
+    fetchTgStatus();
 
     // 1. Fetch Profiles
     let unsubProfiles = () => {};
@@ -528,6 +595,13 @@ export const Admin: React.FC = () => {
             <Bot className="w-4 h-4" />
             Botlar ({bots.length})
           </TabsTrigger>
+          <TabsTrigger value="telegram-ai" className="gap-2 rounded-lg font-semibold text-sm">
+            <Radio className="w-4 h-4 text-sky-400" />
+            24/7 Telegram AI Yordamchi
+            {tgStatus?.isRunning && (
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-0.5"></span>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         {/* USERS & SUBSCRIPTIONS TAB */}
@@ -831,6 +905,357 @@ export const Admin: React.FC = () => {
               </Table>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* TELEGRAM 24/7 AI SUPPORT TAB */}
+        <TabsContent value="telegram-ai">
+          <div className="space-y-6">
+            {/* Status & Quick Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Card className="border-border/60 bg-card/60 backdrop-blur-sm">
+                <CardHeader className="pb-2">
+                  <CardDescription className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Bot Holati</CardDescription>
+                  <CardTitle className="text-2xl font-bold flex items-center gap-2">
+                    {tgStatus?.isRunning ? (
+                      <>
+                        <span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <span className="text-emerald-500">24/7 Ishlamoqda</span>
+                      </>
+                    ) : tgStatus?.hasToken ? (
+                      <>
+                        <span className="w-3 h-3 rounded-full bg-amber-500"></span>
+                        <span className="text-amber-500">Ulanmoqda...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="w-3 h-3 rounded-full bg-muted-foreground"></span>
+                        <span className="text-muted-foreground text-lg">Token kiritilmagan</span>
+                      </>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <span className="text-xs text-muted-foreground">
+                    {tgStatus?.tokenMasked ? `Token: ${tgStatus.tokenMasked}` : "Telegram @BotFather orqali token oling"}
+                  </span>
+                </CardContent>
+              </Card>
+
+              <Card className="border-sky-500/20 bg-sky-500/5 backdrop-blur-sm">
+                <CardHeader className="pb-2">
+                  <CardDescription className="text-xs font-semibold uppercase tracking-wider text-sky-400">Murojaat Qilganlar</CardDescription>
+                  <CardTitle className="text-3xl font-black text-sky-400">
+                    {tgStatus?.stats?.totalUsers || 0}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <span className="text-xs text-sky-400/80">Telegram foydalanuvchilari</span>
+                </CardContent>
+              </Card>
+
+              <Card className="border-emerald-500/20 bg-emerald-500/5 backdrop-blur-sm">
+                <CardHeader className="pb-2">
+                  <CardDescription className="text-xs font-semibold uppercase tracking-wider text-emerald-400">Jami Savol-Javoblar</CardDescription>
+                  <CardTitle className="text-3xl font-black text-emerald-400">
+                    {tgStatus?.stats?.totalQueries || 0}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <span className="text-xs text-emerald-400/80">Bugun: {tgStatus?.stats?.todayQueries || 0} ta so'rov</span>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* TELEGRAM ACCOUNT & BUSINESS CONNECTION CARD */}
+            <Card className="border-sky-500/30 bg-gradient-to-br from-sky-500/10 via-card/80 to-indigo-500/10 shadow-xl overflow-hidden relative">
+              <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
+                <Smartphone className="w-36 h-36 text-sky-400" />
+              </div>
+              <CardHeader className="pb-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-sky-500/20 border border-sky-500/30 flex items-center justify-center text-sky-400">
+                      <Smartphone className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-xl font-bold flex items-center gap-2">
+                        <span>Telegram Akkauntga Ulanish</span>
+                        <Badge variant="outline" className="bg-sky-500/10 text-sky-400 border-sky-500/30 text-[11px] font-semibold">
+                          Telegram Biznes & Chatbot
+                        </Badge>
+                      </CardTitle>
+                      <CardDescription className="text-xs mt-0.5">
+                        Botingizni shaxsiy Telegram akkauntingizga ulab, mijozlar yozganda avtomatik javob berishini ta'minlang
+                      </CardDescription>
+                    </div>
+                  </div>
+
+                  {tgStatus?.botInfo?.username && (
+                    <Badge variant="secondary" className="px-3 py-1 text-xs font-mono font-bold bg-background/80 border border-border flex items-center gap-1.5">
+                      <Bot className="w-3.5 h-3.5 text-sky-400" />
+                      @{tgStatus.botInfo.username}
+                    </Badge>
+                  )}
+                </div>
+              </CardHeader>
+
+              <CardContent className="space-y-4">
+                {/* Business permission status check */}
+                {tgStatus?.botInfo ? (
+                  tgStatus.botInfo.canConnectToBusiness ? (
+                    <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs flex items-start gap-2.5">
+                      <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+                      <div>
+                        <p className="font-semibold">Telegram Biznes ruxsati faollashtirilgan!</p>
+                        <p className="text-emerald-400/80 mt-0.5">
+                          Botingiz Telegram Biznes xabarlarini qabul qilishga tayyor. Quyidagi tugma orqali uni o'z akkauntingizga ulang.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs space-y-2">
+                      <div className="flex items-start gap-2.5">
+                        <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
+                        <div>
+                          <p className="font-semibold text-amber-400">Telegram Biznes ruxsatini 1 marta yoqish kerak</p>
+                          <p className="text-muted-foreground mt-0.5 leading-relaxed">
+                            Telegramda <i>"Bu bot hali Telegram Biznesni dastaklamaydi"</i> xatosi chiqmasligi uchun BotFather'da biznes funksiyasini yoqish talab qilinadi:
+                          </p>
+                        </div>
+                      </div>
+                      <ol className="list-decimal list-inside space-y-1 pl-6 text-[11px] text-muted-foreground">
+                        <li><b>@BotFather</b> ga kiring va <code>/mybots</code> buyrug'ini bering</li>
+                        <li><b>@{tgStatus?.botInfo?.username || 'IsmoilovshAI_bot'}</b> botingizni tanlang</li>
+                        <li><b>Bot Settings</b> ➡️ <b>Telegram Business</b> ➡️ <b>Turn On</b> tugmasini bosing</li>
+                      </ol>
+                    </div>
+                  )
+                ) : null}
+
+                {/* Direct Action Buttons */}
+                <div className="flex flex-wrap items-center gap-3 pt-1">
+                  <a
+                    href={tgStatus?.botInfo?.username ? `https://t.me/${tgStatus.botInfo.username}?startattach` : "https://t.me"}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex"
+                  >
+                    <Button
+                      type="button"
+                      className="gap-2 font-bold bg-sky-500 hover:bg-sky-600 text-white rounded-xl shadow-lg shadow-sky-500/25 px-5"
+                    >
+                      <Link2 className="w-4 h-4" />
+                      Botni Akkauntimga Ulash
+                      <ExternalLink className="w-3.5 h-3.5 ml-1 opacity-70" />
+                    </Button>
+                  </a>
+
+                  <a
+                    href={tgStatus?.botInfo?.username ? `https://t.me/${tgStatus.botInfo.username}` : "https://t.me"}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex"
+                  >
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="gap-2 font-semibold rounded-xl border-sky-500/30 hover:bg-sky-500/10 text-sky-400"
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                      Bot bilan Suhbatlashish
+                    </Button>
+                  </a>
+
+                  <a
+                    href="https://t.me/BotFather"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex"
+                  >
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="gap-2 text-xs rounded-xl text-muted-foreground hover:text-foreground"
+                    >
+                      <Bot className="w-3.5 h-3.5" />
+                      @BotFather ga o'tish
+                    </Button>
+                  </a>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      if (tgStatus?.botInfo?.username) {
+                        navigator.clipboard.writeText(`@${tgStatus.botInfo.username}`);
+                        toast.success(`@${tgStatus.botInfo.username} nusxalandi!`);
+                      }
+                    }}
+                    className="gap-1.5 text-xs rounded-xl ml-auto"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    Username Nusxalash
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Configuration Form Card */}
+            <Card className="border-border/60 shadow-lg">
+              <CardHeader>
+                <CardTitle className="text-xl font-bold flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-amber-500" />
+                  <span>Telegram AI Yordamchini Sozlash</span>
+                </CardTitle>
+                <CardDescription className="text-sm mt-1">
+                  CloudBot.uz nomidan 24/7 uzluksiz javob beruvchi rasmiy Telegram AI xodimi
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleSaveTgConfig} className="space-y-5">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-foreground flex items-center justify-between">
+                        <span>Telegram Bot Token</span>
+                        <span className="text-xs text-muted-foreground font-normal">@BotFather bergan token</span>
+                      </label>
+                      <div className="relative">
+                        <Input
+                          type={showTgToken ? "text" : "password"}
+                          placeholder={tgStatus?.hasToken ? "Yangi token kiritish (o'zgartirish uchun)" : "Masalan: 7891234567:AAHxyz..."}
+                          value={tgToken}
+                          onChange={(e) => setTgToken(e.target.value)}
+                          className="pr-10 rounded-xl bg-background/80"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowTgToken(!showTgToken)}
+                          className="absolute right-3 top-2.5 text-muted-foreground hover:text-foreground"
+                        >
+                          {showTgToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                      {tgStatus?.hasToken && (
+                        <p className="text-xs text-emerald-500 flex items-center gap-1 mt-1">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Token o'rnatilgan: {tgStatus.tokenMasked}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-foreground flex items-center justify-between">
+                        <span>Administrator Telegram ID</span>
+                        <span className="text-xs text-muted-foreground font-normal">/admin buyrug'i uchun</span>
+                      </label>
+                      <Input
+                        type="text"
+                        placeholder="Masalan: 508129341 (@userinfobot orqali oling)"
+                        value={tgAdminId}
+                        onChange={(e) => setTgAdminId(e.target.value)}
+                        className="rounded-xl bg-background/80"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Ushbu ID egasi Telegramda botga <code>/admin</code> deb yozsa, platforma statistikasini ko'ra oladi.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-4 border-t border-border/40">
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        id="tg-enabled-toggle"
+                        checked={tgEnabled}
+                        onChange={(e) => setTgEnabled(e.target.checked)}
+                        className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+                      />
+                      <label htmlFor="tg-enabled-toggle" className="text-sm font-medium cursor-pointer">
+                        AI Yordamchi botni fonda 24/7 faol ushlab turish
+                      </label>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={fetchTgStatus}
+                        disabled={loadingTg}
+                        className="rounded-xl gap-2 text-xs"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${loadingTg ? 'animate-spin' : ''}`} />
+                        Yangilash
+                      </Button>
+                      <Button
+                        type="submit"
+                        disabled={savingTg}
+                        className="rounded-xl gap-2 font-semibold bg-primary hover:bg-primary/90 text-primary-foreground text-sm"
+                      >
+                        <Save className="w-4 h-4" />
+                        {savingTg ? "Saqlanmoqda..." : "Saqlash va Ishga Tushirish"}
+                      </Button>
+                    </div>
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+
+            {/* Live Logs / Recent Dialogs Card */}
+            <Card className="border-border/60 shadow-lg">
+              <CardHeader className="flex flex-row items-center justify-between pb-4">
+                <div>
+                  <CardTitle className="text-lg font-bold flex items-center gap-2">
+                    <Activity className="w-5 h-5 text-sky-400" />
+                    <span>So'nggi Murojaatlar va AI Javoblari Tarixi</span>
+                  </CardTitle>
+                  <CardDescription className="text-xs mt-1">
+                    Foydalanuvchilarning Telegram orqali yozgan so'nggi savollari va Botly AI javoblari
+                  </CardDescription>
+                </div>
+                <Badge variant="outline" className="text-xs">
+                  {tgStatus?.recentLogs?.length || 0} ta yozuv
+                </Badge>
+              </CardHeader>
+              <CardContent>
+                {(!tgStatus?.recentLogs || tgStatus.recentLogs.length === 0) ? (
+                  <div className="text-center py-10 text-muted-foreground text-sm">
+                    Hozircha Telegram orqali xabarlar kelib tushmadi. Botga /start yuborib sinab ko'ring.
+                  </div>
+                ) : (
+                  <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+                    {tgStatus.recentLogs.map((log: any) => (
+                      <div
+                        key={log.id}
+                        className={`p-3 rounded-xl border text-sm ${
+                          log.role === 'user'
+                            ? 'bg-sky-500/5 border-sky-500/20 text-foreground'
+                            : 'bg-muted/40 border-border/60 text-muted-foreground'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-1.5">
+                          <div className="flex items-center gap-2">
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] px-2 py-0.5 rounded-md uppercase font-bold ${
+                                log.role === 'user' ? 'text-sky-400 border-sky-400/30' : 'text-emerald-400 border-emerald-400/30'
+                              }`}
+                            >
+                              {log.role === 'user' ? `Foydalanuvchi (@${log.username || log.chat_id})` : 'Botly AI Xodimi'}
+                            </Badge>
+                          </div>
+                          <span className="text-[11px] text-muted-foreground font-mono">
+                            {log.created_at || ''}
+                          </span>
+                        </div>
+                        <p className="text-xs whitespace-pre-wrap leading-relaxed">
+                          {log.text}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
       </Tabs>
 
