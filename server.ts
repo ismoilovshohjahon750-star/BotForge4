@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import compression from "compression";
 import { createServer as createViteServer } from "vite";
 import multer from "multer";
 import AdmZip from "adm-zip";
@@ -158,11 +159,35 @@ function createOrRepairDatabase(dbPath: string) {
           read INTEGER DEFAULT 0
       )`);
 
+      database.exec(`CREATE TABLE IF NOT EXISTS daily_usage (
+          user_id TEXT,
+          date TEXT,
+          count INTEGER DEFAULT 0,
+          PRIMARY KEY (user_id, date)
+      )`);
+
+      // Performance Optimization: Targeted high-speed Indexes
+      database.exec(`
+          CREATE INDEX IF NOT EXISTS idx_bots_owner ON bots(owner_id);
+          CREATE INDEX IF NOT EXISTS idx_bots_status ON bots(status);
+          CREATE INDEX IF NOT EXISTS idx_bot_logs_bot_id ON bot_logs(bot_id, id);
+          CREATE INDEX IF NOT EXISTS idx_subscriptions_plan ON subscriptions(plan);
+          CREATE INDEX IF NOT EXISTS idx_profiles_email ON profiles(email);
+          CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(userId, read);
+          CREATE INDEX IF NOT EXISTS idx_daily_usage_user_date ON daily_usage(user_id, date);
+      `);
+
+      // Maintenance: Auto-prune bot logs older than 7 days to preserve disk space & speed
+      try {
+        database.exec(`DELETE FROM bot_logs WHERE created_at < datetime('now', '-7 days');`);
+      } catch (_) {}
+
       // 3. Test queries on all tables and indexes to catch disk image malformed errors early
       database.prepare("SELECT count(*) FROM bots").get();
       database.prepare("SELECT id, status FROM bots LIMIT 1").all();
       database.prepare("SELECT count(*) FROM bot_logs").get();
       database.prepare("SELECT count(*) FROM subscriptions").get();
+      database.prepare("SELECT count(*) FROM daily_usage").get();
       
       try {
         database.pragma('wal_checkpoint(TRUNCATE)');
@@ -189,12 +214,172 @@ function createOrRepairDatabase(dbPath: string) {
   }
 }
 
-const db = createOrRepairDatabase('ukaaaa.db');
+const db = createOrRepairDatabase('gibritplat.db');
+
+function syncBotsFromDisk(database: any, defaultUserId?: string) {
+  const botsRunningDir = path.join(process.cwd(), 'bots_running');
+  if (!fs.existsSync(botsRunningDir)) return;
+
+  const knownNames: Record<string, string> = {
+    'rE8KhEFgQ4h0anaCUDzO': 'ArdoChat Bot',
+    'tM8bZGCvJciQeJHrvxNh': 'AI Chat Bot',
+    'qdkiN1G5ya9SgzI4gixE': 'CloudBot Telegram Bot',
+    'FQwQVl0E1qIAXQzHMOkb': 'Python Telegram Bot',
+    'OeOfM41O4qkP9hY60t9c': 'Kino / Movie Search Bot',
+    'AvF3ZBkExmvsRULK0BBB': 'Go High-Speed Bot',
+    'IO7rIZ9LyawwNTHfjk4F': 'Node.js Starter Bot'
+  };
+
+  const knownTypes: Record<string, { language: string; entryPoint: string }> = {
+    'rE8KhEFgQ4h0anaCUDzO': { language: 'python', entryPoint: 'bot.py' },
+    'tM8bZGCvJciQeJHrvxNh': { language: 'python', entryPoint: 'main.py' },
+    'qdkiN1G5ya9SgzI4gixE': { language: 'nodejs', entryPoint: 'index.js' },
+    'FQwQVl0E1qIAXQzHMOkb': { language: 'python', entryPoint: 'main.py' },
+    'OeOfM41O4qkP9hY60t9c': { language: 'python', entryPoint: 'handlers.py' },
+    'AvF3ZBkExmvsRULK0BBB': { language: 'go', entryPoint: 'main.go' },
+    'IO7rIZ9LyawwNTHfjk4F': { language: 'nodejs', entryPoint: 'index.js' }
+  };
+
+  try {
+    const folders = fs.readdirSync(botsRunningDir);
+    for (const botId of folders) {
+      const botDir = path.join(botsRunningDir, botId);
+      if (!fs.existsSync(botDir) || !fs.statSync(botDir).isDirectory()) continue;
+
+      const existing = database.prepare('SELECT id, owner_id FROM bots WHERE id = ?').get(botId) as any;
+      if (!existing) {
+        const name = knownNames[botId] || `Bot ${botId.slice(0, 6)}`;
+        const typeInfo = knownTypes[botId] || { language: 'python', entryPoint: 'main.py' };
+
+        let codeBlob: Buffer | null = null;
+        const zipPath = path.join(botDir, 'bot.zip');
+        if (fs.existsSync(zipPath)) {
+          try { codeBlob = fs.readFileSync(zipPath); } catch (_) {}
+        }
+
+        if (!codeBlob) {
+          try {
+            const zip = new AdmZip();
+            const addDirToZip = (dir: string, zipRel: string) => {
+              const items = fs.readdirSync(dir);
+              for (const item of items) {
+                if (item === 'bot.zip' || item === '.pid' || item === 'bot_bin' || item.endsWith('.db') || item === '__pycache__' || item === 'node_modules') continue;
+                const full = path.join(dir, item);
+                const rel = zipRel ? path.join(zipRel, item) : item;
+                if (fs.statSync(full).isDirectory()) {
+                  addDirToZip(full, rel);
+                } else {
+                  zip.addLocalFile(full, zipRel);
+                }
+              }
+            };
+            addDirToZip(botDir, '');
+            codeBlob = zip.toBuffer();
+          } catch (_) {}
+        }
+
+        database.prepare('INSERT OR REPLACE INTO bots (id, owner_id, name, language, entryPoint, code, status) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+          botId,
+          defaultUserId || '',
+          name,
+          typeInfo.language,
+          typeInfo.entryPoint,
+          codeBlob,
+          'stopped'
+        );
+        console.log(`[DiskSync]: Restored bot ${botId} (${name}) to SQLite database`);
+      } else if (!existing.owner_id && defaultUserId) {
+        database.prepare('UPDATE bots SET owner_id = ? WHERE id = ?').run(defaultUserId, botId);
+      }
+    }
+  } catch (e) {
+    console.warn('[DiskSync error]:', e);
+  }
+}
+
+// Perform initial disk sync to restore all existing bots
+syncBotsFromDisk(db);
 
 const runningBots = new Map<string, any>();
 const userStoppedBots = new Set<string>();
 const startingBots = new Set<string>();
+const schedulePausedBots = new Set<string>();
 const botCrashTracker = new Map<string, { count: number; lastCrash: number }>();
+
+// O'zbekiston vaqti (Asia/Tashkent UTC+5) yordamchi funksiyalari
+function getUzbekistanTime(): { hours: number; minutes: number; totalMinutes: number; timeStr: string } {
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Tashkent',
+    hour: 'numeric',
+    minute: 'numeric',
+    second: 'numeric',
+    hour12: false
+  });
+  const parts = formatter.formatToParts(now);
+  const hourPart = parts.find(p => p.type === 'hour')?.value || '0';
+  const minPart = parts.find(p => p.type === 'minute')?.value || '0';
+  const hours = parseInt(hourPart, 10);
+  const minutes = parseInt(minPart, 10);
+  const totalMinutes = hours * 60 + minutes;
+  const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+  return { hours, minutes, totalMinutes, timeStr };
+}
+
+interface PlanSchedule {
+  plan: 'free' | 'pro' | 'vip';
+  name: string;
+  startHour: string;
+  endHour: string;
+  startMinutes: number;
+  endMinutes: number;
+  description: string;
+}
+
+const PLAN_SCHEDULES: Record<'free' | 'pro' | 'vip', PlanSchedule> = {
+  free: {
+    plan: 'free',
+    name: 'Free (Bepul)',
+    startHour: '07:25',
+    endHour: '21:00',
+    startMinutes: 7 * 60 + 25, // 445 daqiqa (07:25)
+    endMinutes: 21 * 60,       // 1260 daqiqa (kechki 21:00 / 09:00 PM)
+    description: "07:25 dan 21:00 gacha (O'zbekiston vaqti)"
+  },
+  pro: {
+    plan: 'pro',
+    name: 'Pro',
+    startHour: '06:30',
+    endHour: '22:35',
+    startMinutes: 6 * 60 + 30, // 390 daqiqa (06:30)
+    endMinutes: 22 * 60 + 35,  // 1355 daqiqa (kechki 22:35 / 10:35 PM)
+    description: "06:30 dan 22:35 gacha (O'zbekiston vaqti)"
+  },
+  vip: {
+    plan: 'vip',
+    name: 'VIP',
+    startHour: '04:00',
+    endHour: '00:00',
+    startMinutes: 4 * 60,      // 240 daqiqa (04:00)
+    endMinutes: 24 * 60,       // 1440 daqiqa (yarim kecha 00:00)
+    description: "04:00 dan 00:00 (yarim kecha) gacha (O'zbekiston vaqti)"
+  }
+};
+
+function isPlanInActiveSchedule(plan: 'free' | 'pro' | 'vip'): { active: boolean; sched: PlanSchedule; uzbTime: ReturnType<typeof getUzbekistanTime> } {
+  const uzbTime = getUzbekistanTime();
+  const sched = PLAN_SCHEDULES[plan] || PLAN_SCHEDULES.free;
+
+  let active = false;
+  if (sched.plan === 'vip') {
+    // 04:00 dan 24:00 (00:00) gacha -> 04:00 dan 23:59:59 faol, 00:00 dan 03:59 gacha o'chiq
+    active = uzbTime.totalMinutes >= sched.startMinutes;
+  } else {
+    active = uzbTime.totalMinutes >= sched.startMinutes && uzbTime.totalMinutes < sched.endMinutes;
+  }
+
+  return { active, sched, uzbTime };
+}
 
 let firestoreQuotaExhaustedUntil = 0;
 
@@ -243,6 +428,88 @@ async function updateFirestoreBotMetadata(botId: string, metadata: { language?: 
     } catch (e: any) {
         handleFirestoreError(e, `update bot metadata (${botId})`);
     }
+}
+
+async function getUserPlanSafe(userId: string): Promise<'free' | 'pro' | 'vip'> {
+  if (!userId) return 'free';
+  let sqlitePlan: 'free' | 'pro' | 'vip' = 'free';
+  try {
+    const sub = db.prepare('SELECT plan FROM subscriptions WHERE user_id = ?').get(userId) as any;
+    if (sub && sub.plan) sqlitePlan = sub.plan;
+  } catch (_) {}
+
+  if (adminDb && !isFirestoreQuotaExhausted()) {
+    try {
+      const subDoc = await adminDb.collection('subscriptions').doc(userId).get();
+      if (subDoc.exists) {
+        const fsPlan = (subDoc.data()?.plan as any) || 'free';
+        try {
+          db.prepare("INSERT OR REPLACE INTO subscriptions (user_id, plan) VALUES (?, ?)").run(userId, fsPlan);
+        } catch (_) {}
+        return fsPlan;
+      }
+    } catch (e) {
+      handleFirestoreError(e, 'getUserPlanSafe');
+    }
+  }
+  return sqlitePlan;
+}
+
+async function getUserDailyUsageSafe(userId: string): Promise<{ count: number; date: string; usageRef: any }> {
+  const date = new Date().toISOString().split('T')[0];
+  let currentCount = 0;
+  let usageRef: any = null;
+
+  try {
+    const row = db.prepare('SELECT count FROM daily_usage WHERE user_id = ? AND date = ?').get(userId, date) as any;
+    if (row && typeof row.count === 'number') {
+      currentCount = row.count;
+    }
+  } catch (_) {}
+
+  if (adminDb && !isFirestoreQuotaExhausted()) {
+    try {
+      usageRef = adminDb.collection('usage').doc(userId).collection('daily-usage').doc(date);
+      const usageDoc = await usageRef.get();
+      if (usageDoc.exists) {
+        const fsCount = usageDoc.data()?.count || 0;
+        currentCount = Math.max(currentCount, fsCount);
+        try {
+          db.prepare('INSERT OR REPLACE INTO daily_usage (user_id, date, count) VALUES (?, ?, ?)').run(userId, date, currentCount);
+        } catch (_) {}
+      }
+    } catch (e) {
+      handleFirestoreError(e, 'getUserDailyUsageSafe');
+    }
+  }
+
+  return { count: currentCount, date, usageRef };
+}
+
+async function incrementUserDailyUsageSafe(userId: string, countToAdd: number = 1, usageRef?: any): Promise<number> {
+  const date = new Date().toISOString().split('T')[0];
+  let newCount = countToAdd;
+
+  try {
+    const row = db.prepare('SELECT count FROM daily_usage WHERE user_id = ? AND date = ?').get(userId, date) as any;
+    newCount = (row?.count || 0) + countToAdd;
+    db.prepare('INSERT OR REPLACE INTO daily_usage (user_id, date, count) VALUES (?, ?, ?)').run(userId, date, newCount);
+  } catch (_) {}
+
+  if (adminDb && !isFirestoreQuotaExhausted()) {
+    try {
+      const ref = usageRef || adminDb.collection('usage').doc(userId).collection('daily-usage').doc(date);
+      await adminDb.runTransaction(async (t: any) => {
+        const docSnap = await t.get(ref);
+        const count = docSnap.exists ? (docSnap.data()?.count || 0) : 0;
+        t.set(ref, { count: count + countToAdd }, { merge: true });
+      });
+    } catch (e) {
+      handleFirestoreError(e, 'incrementUserDailyUsageSafe');
+    }
+  }
+
+  return newCount;
 }
 
 function addBotLog(botId: string, type: 'deploy' | 'run' | 'system', message: string) {
@@ -717,6 +984,29 @@ function validateBotCodeSyntax(botDir: string, activeLanguage: string, activeEnt
 
 async function startBot(botId: string) {
     userStoppedBots.delete(botId);
+
+    // Schedule check: Agar obuna rejasi bo'yicha tungi rejim bo'lsa, botni ishga tushirmasdan to'xtatilgan holda saqlash
+    try {
+      const botRow = db.prepare("SELECT owner_id, name FROM bots WHERE id = ?").get(botId) as any;
+      if (botRow && botRow.owner_id) {
+        const plan = await getUserPlanSafe(botRow.owner_id);
+        const { active, sched, uzbTime } = isPlanInActiveSchedule(plan);
+        if (!active) {
+          console.log(`[startBot]: Bot ${botId} (${plan}) tungi rejimda (${uzbTime.timeStr}). Ishga tushirish to'xtatildi.`);
+          db.prepare("UPDATE bots SET status = 'stopped' WHERE id = ?").run(botId);
+          updateFirestoreBotStatus(botId, 'stopped');
+          schedulePausedBots.add(botId);
+          addBotLog(
+            botId,
+            'system',
+            `[Avto-Jadval]: ${sched.name} tarifi bo'yicha tungi rejim (Faol vaqt: ${sched.startHour} - ${sched.endHour}, O'zbekiston vaqti: ${uzbTime.timeStr}). Server resurslarini tejash uchun bot to'xtatildi. Ertalab soat ${sched.startHour} da avtomatik ishga tushadi.`
+          );
+          return;
+        }
+      }
+    } catch (schedErr) {
+      console.warn(`[startBot schedule check error]:`, schedErr);
+    }
 
     if (startingBots.has(botId)) {
         console.log(`[startBot]: Bot ${botId} is already starting/deploying. Skipping concurrent call.`);
@@ -1309,7 +1599,7 @@ async function startBot(botId: string) {
                 args = ['tsx', fullEntryPath];
             } else {
                 cmd = 'node';
-                args = [fullEntryPath];
+                args = ['--max-old-space-size=256', fullEntryPath];
             }
         }
 
@@ -1337,6 +1627,9 @@ async function startBot(botId: string) {
             for (let line of lines) {
                 line = line.trim();
                 if (!line) continue;
+                if (line.length > 2000) {
+                    line = line.substring(0, 2000) + '... (uzun log qisqartirildi)';
+                }
 
                 // Filter out noisy python framework warnings & pip messages
                 if (line.includes('RuntimeWarning') || line.includes('tracemalloc')) continue;
@@ -1719,6 +2012,9 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
   
+  // Performance Optimization: Gzip/Brotli response compression
+  app.use(compression({ level: 6, threshold: 1024 }));
+  
   app.use(express.json());
 
   const upload = multer({ storage: multer.memoryStorage() });
@@ -1782,121 +2078,237 @@ async function startServer() {
     }
   });
 
-  // Helper for DD.MM.YYYY format (kun.oy.yil)
-  function formatDateKunOyYil(dateObj: Date): string {
+  // Helper for full date & time format (kun.oy.yil soat:minut)
+  function formatDateTimeFull(dateObj: Date): string {
     const day = String(dateObj.getDate()).padStart(2, '0');
     const month = String(dateObj.getMonth() + 1).padStart(2, '0');
     const year = dateObj.getFullYear();
-    return `${day}.${month}.${year}`;
+    const hours = String(dateObj.getHours()).padStart(2, '0');
+    const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+    return `${day}.${month}.${year} ${hours}:${minutes}`;
   }
 
-  // Auto-expiration check for VIP / PRO subscriptions when dueDateISO has passed
+  function formatDateKunOyYil(dateObj: Date): string {
+    return formatDateTimeFull(dateObj);
+  }
+
+  // Parse due date from ISO string, formatted string (DD.MM.YYYY HH:mm), or timestamp
+  function parseDueDate(data: any): Date | null {
+    if (!data) return null;
+
+    if (data.dueDateISO) {
+      const d = new Date(data.dueDateISO);
+      if (!isNaN(d.getTime())) return d;
+    }
+
+    if (data.dueDateFormatted && typeof data.dueDateFormatted === 'string') {
+      const str = data.dueDateFormatted.trim();
+      const match = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/);
+      if (match) {
+        const day = parseInt(match[1], 10);
+        const month = parseInt(match[2], 10) - 1;
+        const year = parseInt(match[3], 10);
+        const hour = match[4] ? parseInt(match[4], 10) : 23;
+        const min = match[5] ? parseInt(match[5], 10) : 59;
+        const sec = match[6] ? parseInt(match[6], 10) : 59;
+        const d = new Date(year, month, day, hour, min, sec);
+        if (!isNaN(d.getTime())) return d;
+      }
+    }
+
+    if (data.dueDate) {
+      const d = new Date(data.dueDate);
+      if (!isNaN(d.getTime())) return d;
+    }
+
+    return null;
+  }
+
+  // Auto-expiration check for VIP / PRO subscriptions when payment / due date has arrived or passed
   async function checkAndExpireSubscriptions() {
     try {
       const now = new Date();
 
       // 1. Local SQLite expiration check
       try {
-        const sqliteSubs = db.prepare("SELECT * FROM subscriptions WHERE plan IN ('pro', 'vip') AND dueDateISO IS NOT NULL").all() as any[];
+        const sqliteSubs = db.prepare("SELECT * FROM subscriptions WHERE plan IN ('pro', 'vip')").all() as any[];
         for (const row of sqliteSubs) {
-          if (row.dueDateISO) {
-            const dueDate = new Date(row.dueDateISO);
-            if (now >= dueDate) {
-              db.prepare("UPDATE subscriptions SET plan = 'free', updatedAt = ? WHERE user_id = ?").run(now.toISOString(), row.user_id);
-              console.log(`[Auto-Expire Local]: User ${row.user_id} plan reverted to free.`);
+          const dueDate = parseDueDate(row);
+          if (dueDate && now.getTime() >= dueDate.getTime()) {
+            const userId = row.user_id;
+            const oldPlan = row.plan || 'pro';
+            const formattedExpDate = formatDateTimeFull(now);
+
+            // Downgrade to 'free' in SQLite
+            db.prepare("UPDATE subscriptions SET plan = 'free', dueDateISO = NULL, dueDateFormatted = NULL, updatedAt = ? WHERE user_id = ?").run(now.toISOString(), userId);
+
+            // Find user display email
+            let userEmail = userId;
+            try {
+              const prof = db.prepare("SELECT email FROM profiles WHERE user_id = ?").get(userId) as any;
+              if (prof?.email) userEmail = prof.email;
+            } catch (_) {}
+
+            // Add user notification
+            try {
+              db.prepare("INSERT INTO notifications (userId, userEmail, title, message, type, createdAt, read) VALUES (?, ?, ?, ?, ?, ?, 0)").run(
+                userId,
+                userEmail,
+                `To'lov Muddati Tugadi - Obuna BEPUL Tarifga O'tkazildi`,
+                `Sizning ${oldPlan.toUpperCase()} obunangizning amal qilish muddati tugadi (${formattedExpDate}) va hisobingiz avtomatik ravishda BEPUL (Free) tarifga o'tkazildi. Obunani yangilash uchun administratorga murojaat qiling.`,
+                'sub_expired',
+                now.toISOString()
+              );
+            } catch (_) {}
+
+            // Add admin notification
+            try {
+              db.prepare("INSERT INTO notifications (userId, userEmail, title, message, type, createdAt, read) VALUES (?, ?, ?, ?, ?, ?, 0)").run(
+                'admin',
+                userEmail,
+                "Obuna Muddati Tugadi",
+                `Foydalanuvchi (${userEmail}) ning ${oldPlan.toUpperCase()} obunasi muddati tugadi (${formattedExpDate}) va hisobi avtomatik BEPUL tarifga tushirildi.`,
+                'sub_expired',
+                now.toISOString()
+              );
+            } catch (_) {}
+
+            console.log(`[Auto-Expire SQLite]: User ${userEmail} (${userId}) plan reverted from ${oldPlan} to free.`);
+
+            // Revert in Firestore for this specific user if connected
+            if (adminDb && !isFirestoreQuotaExhausted()) {
+              try {
+                await adminDb.collection('subscriptions').doc(userId).set({
+                  plan: 'free',
+                  dueDateISO: null,
+                  dueDateFormatted: null,
+                  expiredAt: now.toISOString(),
+                  expiredFromPlan: oldPlan
+                }, { merge: true });
+
+                await adminDb.collection('notifications').add({
+                  userId: userId,
+                  userEmail: userEmail,
+                  title: `To'lov Muddati Tugadi - Obuna BEPUL Tarifga O'tkazildi`,
+                  message: `Sizning ${oldPlan.toUpperCase()} obunangizning amal qilish muddati tugadi (${formattedExpDate}) va hisobingiz avtomatik ravishda BEPUL (Free) tarifga o'tkazildi. Obunani yangilash uchun administratorga murojaat qiling.`,
+                  type: 'sub_expired',
+                  createdAt: now.toISOString(),
+                  read: false
+                });
+
+                await adminDb.collection('notifications').add({
+                  userId: 'admin',
+                  userEmail: userEmail,
+                  title: "Obuna Muddati Tugadi",
+                  message: `Foydalanuvchi (${userEmail}) ning ${oldPlan.toUpperCase()} obunasi muddati tugadi (${formattedExpDate}) va hisobi avtomatik BEPUL tarifga tushirildi.`,
+                  type: 'sub_expired',
+                  createdAt: now.toISOString(),
+                  read: false
+                });
+              } catch (fsErr) {
+                handleFirestoreError(fsErr, 'sub-expired individual doc');
+              }
             }
           }
         }
       } catch (sqlErr) {
-        // ignore
-      }
-
-      // 2. Firestore check if available and quota not exceeded
-      if (!adminDb || isFirestoreQuotaExhausted()) return;
-
-      const subsSnap = await adminDb.collection('subscriptions').get();
-
-      for (const docSnap of subsSnap.docs) {
-        const data = docSnap.data() || {};
-        const plan = data.plan;
-        if (plan && (plan === 'pro' || plan === 'vip') && data.dueDateISO) {
-          const dueDate = new Date(data.dueDateISO);
-          if (now >= dueDate) {
-            const userId = docSnap.id;
-            const oldPlan = plan;
-
-            // Revert plan to 'free' in Firestore subscriptions
-            await adminDb.collection('subscriptions').doc(userId).set({
-              plan: 'free',
-              expiredAt: now.toISOString(),
-              expiredFromPlan: oldPlan
-            }, { merge: true });
-
-            // Revert in SQLite as well
-            try {
-              db.prepare("INSERT OR REPLACE INTO subscriptions (user_id, plan, updatedAt) VALUES (?, 'free', ?)").run(userId, now.toISOString());
-            } catch (e) {}
-
-            // Find user email
-            let targetEmail = '';
-            try {
-              const u = await adminAuth.getUser(userId);
-              targetEmail = u.email || '';
-            } catch (e) {
-              const p = await adminDb.collection('profiles').doc(userId).get();
-              targetEmail = p.data()?.email || '';
-            }
-            const displayEmail = targetEmail || userId;
-
-            // Notify User
-            await adminDb.collection('notifications').add({
-              userId: userId,
-              userEmail: displayEmail,
-              title: `Obuna Vaqti Tugadi (${oldPlan.toUpperCase()})`,
-              message: `Sizning ${oldPlan.toUpperCase()} obuna vaqtingiz tugadi va hisobingiz avtomatik BEPUL (Free) tarifga o'tkazildi. Obunani uzaytirish uchun administratorga murojaat qiling.`,
-              type: 'sub_expired',
-              createdAt: now.toISOString(),
-              read: false
-            });
-
-            // Notify Admin
-            await adminDb.collection('notifications').add({
-              userId: 'admin',
-              userEmail: displayEmail,
-              title: "Obuna Vaqti Tugadi",
-              message: `Foydalanuvchi (${displayEmail}) ning ${oldPlan.toUpperCase()} obuna vaqti tugadi va avtomatik BEPUL tarifga o'tkazildi.`,
-              type: 'sub_expired',
-              createdAt: now.toISOString(),
-              read: false
-            });
-
-            console.log(`[Auto-Expire]: User ${userId} (${displayEmail}) plan reverted from ${oldPlan} to free.`);
-          }
-        }
+        console.warn("SQLite auto-expire check warning:", sqlErr);
       }
     } catch (err: any) {
-      handleFirestoreError(err, 'checkAndExpireSubscriptions');
+      console.warn("checkAndExpireSubscriptions error:", err?.message || err);
     }
   }
 
-  // Run subscription expiration check on startup & every 5 minutes (saves quota)
+  // Run subscription expiration check on startup & every 10 seconds
   checkAndExpireSubscriptions();
-  setInterval(checkAndExpireSubscriptions, 300000);
+  setInterval(checkAndExpireSubscriptions, 10000);
 
   // Admin Routes
+  app.post("/api/auth/sync", requireAuth, async (req: AuthRequest, res) => {
+    const userId = req.user?.uid;
+    const email = req.user?.email || '';
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    try {
+      const now = new Date().toISOString();
+      db.prepare("INSERT OR REPLACE INTO profiles (user_id, email, displayName, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?)").run(
+        userId,
+        email,
+        email.split('@')[0] || 'User',
+        now,
+        now
+      );
+
+      const isUserAdmin = email === 'ismoilovshohjahon750@gmail.com';
+      if (isUserAdmin) {
+        db.prepare("INSERT OR REPLACE INTO user_roles (user_id, role, email) VALUES (?, ?, ?)").run(userId, 'admin', email);
+        const existingSub = db.prepare("SELECT * FROM subscriptions WHERE user_id = ?").get(userId);
+        if (!existingSub) {
+          const due = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+          db.prepare("INSERT OR REPLACE INTO subscriptions (user_id, plan, assignedDateFormatted, dueDateFormatted, assignedAt, dueDateISO, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+            userId, 'vip', '29.08.2026', '29.08.2027', now, due, now
+          );
+        }
+      }
+
+      await checkAndExpireSubscriptions();
+
+      const userSub = db.prepare("SELECT * FROM subscriptions WHERE user_id = ?").get(userId) as any;
+      const userPlan = userSub?.plan || 'free';
+
+      res.json({
+        success: true,
+        isAdmin: isUserAdmin,
+        plan: userPlan,
+        assignedDateFormatted: userSub?.assignedDateFormatted || null,
+        dueDateFormatted: userSub?.dueDateFormatted || null,
+        dueDateISO: userSub?.dueDateISO || null
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/user/subscription", requireAuth, async (req: AuthRequest, res) => {
+    const userId = req.user?.uid;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    try {
+      await checkAndExpireSubscriptions();
+      const userSub = db.prepare('SELECT * FROM subscriptions WHERE user_id = ?').get(userId) as any;
+      const plan = userSub?.plan || 'free';
+
+      res.json({
+        success: true,
+        plan,
+        assignedDateFormatted: userSub?.assignedDateFormatted || null,
+        dueDateFormatted: userSub?.dueDateFormatted || null,
+        dueDateISO: userSub?.dueDateISO || null
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.post("/api/admin/set-subscription", requireAuth, async (req: AuthRequest, res) => {
     try {
       const userEmail = req.user?.email || '';
       let isUserAdmin = userEmail === 'ismoilovshohjahon750@gmail.com';
       if (!isUserAdmin && req.user?.uid) {
         try {
-          if (adminDb && !isFirestoreQuotaExhausted()) {
+          const roleRow = db.prepare("SELECT role FROM user_roles WHERE user_id = ?").get(req.user.uid) as any;
+          if (roleRow && roleRow.role === 'admin') {
+            isUserAdmin = true;
+          }
+        } catch (_) {}
+        if (!isUserAdmin && adminDb && !isFirestoreQuotaExhausted()) {
+          try {
             const roleDoc = await adminDb.collection('user_roles').doc(req.user.uid).get();
             if (roleDoc.exists && roleDoc.data()?.role === 'admin') {
               isUserAdmin = true;
             }
-          }
-        } catch (e) {}
+          } catch (e) {}
+        }
       }
 
       if (!isUserAdmin) {
@@ -1908,34 +2320,143 @@ async function startServer() {
         return res.status(400).json({ error: "Noto'g'ri ma'lumotlar" });
       }
 
-      const now = new Date();
-      const durationDays = Number(customDurationDays) || 30; // default 1 month
-      const dueDate = new Date(now);
-      dueDate.setDate(dueDate.getDate() + durationDays);
+      // Resolve actual target user ID & email
+      let actualUserId = targetUserId;
+      let targetEmail = '';
 
-      const assignedDateFormatted = formatDateKunOyYil(now);
-      const dueDateFormatted = formatDateKunOyYil(dueDate);
+      try {
+        const prof = db.prepare("SELECT user_id, email FROM profiles WHERE user_id = ? OR email = ?").get(targetUserId, targetUserId) as any;
+        if (prof) {
+          actualUserId = prof.user_id;
+          targetEmail = prof.email || '';
+        }
+      } catch (_) {}
+
+      if (!targetEmail) {
+        try {
+          const u = await adminAuth.getUser(actualUserId);
+          targetEmail = u.email || '';
+        } catch (e) {
+          try {
+            if (adminDb && !isFirestoreQuotaExhausted()) {
+              const profDoc = await adminDb.collection('profiles').doc(actualUserId).get();
+              targetEmail = profDoc.data()?.email || '';
+            }
+          } catch (_) {}
+        }
+      }
+
+      const displayEmail = targetEmail || actualUserId;
+      const now = new Date();
+
+      let assignedDateFormatted: string | null = null;
+      let dueDateFormatted: string | null = null;
+      let dueDateISO: string | null = null;
+      const assignedAt = now.toISOString();
+
+      if (plan === 'free') {
+        // Resetting to free
+        assignedDateFormatted = null;
+        dueDateFormatted = null;
+        dueDateISO = null;
+
+        // 1. SQLite update
+        try {
+          db.prepare("INSERT OR REPLACE INTO subscriptions (user_id, plan, assignedDateFormatted, dueDateFormatted, assignedAt, dueDateISO, updatedAt) VALUES (?, 'free', NULL, NULL, ?, NULL, ?)").run(
+            actualUserId,
+            assignedAt,
+            assignedAt
+          );
+        } catch (sqle) {
+          console.warn("Failed to write free subscription to SQLite:", sqle);
+        }
+
+        // 2. Firestore update
+        if (adminDb && !isFirestoreQuotaExhausted()) {
+          try {
+            await adminDb.collection('subscriptions').doc(actualUserId).set({
+              plan: 'free',
+              assignedDateFormatted: null,
+              dueDateFormatted: null,
+              dueDateISO: null,
+              assignedAt,
+              updatedAt: assignedAt,
+              assignedBy: req.user?.uid || userEmail
+            }, { merge: true });
+          } catch (e) {
+            handleFirestoreError(e, 'set-subscription free doc');
+          }
+        }
+
+        // Notifications
+        try {
+          db.prepare("INSERT INTO notifications (userId, userEmail, title, message, type, createdAt, read) VALUES (?, ?, ?, ?, ?, ?, 0)").run(
+            'admin',
+            displayEmail,
+            "Obuna BEPUL Tarifga O'tkazildi",
+            `${displayEmail} foydalanuvchisining obunasi BEPUL tarifga o'tkazildi (${formatDateTimeFull(now)}).`,
+            'sub_assigned',
+            assignedAt
+          );
+          if (actualUserId) {
+            db.prepare("INSERT INTO notifications (userId, userEmail, title, message, type, createdAt, read) VALUES (?, ?, ?, ?, ?, ?, 0)").run(
+              actualUserId,
+              displayEmail,
+              "Obuna BEPUL Tarifga O'tkazildi",
+              `Sizning hisobingiz BEPUL tarifga o'tkazildi (${formatDateTimeFull(now)}).`,
+              'sub_assigned',
+              assignedAt
+            );
+          }
+        } catch (_) {}
+
+        return res.json({
+          success: true,
+          message: `Foydalanuvchi (${displayEmail}) muvaffaqiyatli BEPUL tarifga o'tkazildi!`,
+          targetUserId: actualUserId,
+          plan: 'free',
+          assignedDateFormatted: null,
+          dueDateFormatted: null,
+          dueDateISO: null,
+          assignedAt
+        });
+      }
+
+      // PRO or VIP plan with exact date & time retention
+      let dueDate: Date;
+      if (customDurationDays && Number(customDurationDays) > 0) {
+        const durationDays = Number(customDurationDays);
+        dueDate = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
+      } else {
+        // Default: Exactly 1 month forward at the exact same hour and minute!
+        dueDate = new Date(now);
+        dueDate.setMonth(dueDate.getMonth() + 1);
+      }
+
+      assignedDateFormatted = formatDateTimeFull(now);
+      dueDateFormatted = formatDateTimeFull(dueDate);
+      dueDateISO = dueDate.toISOString();
 
       const subData = {
         plan,
-        updatedAt: now.toISOString(),
-        assignedAt: now.toISOString(),
-        assignedDateFormatted, // kun.oy.yil formatida (e.g. 06.08.2026)
-        dueDateISO: dueDate.toISOString(),
-        dueDateFormatted,      // kun.oy.yil formatida (e.g. 06.09.2026)
+        updatedAt: assignedAt,
+        assignedAt,
+        assignedDateFormatted, // kun.oy.yil soat:minut (e.g. 29.08.2026 12:35)
+        dueDateISO,
+        dueDateFormatted,      // kun.oy.yil soat:minut (e.g. 29.09.2026 12:35)
         assignedBy: req.user?.uid || userEmail
       };
 
       // 1. Save to SQLite subscriptions table immediately
       try {
         db.prepare("INSERT OR REPLACE INTO subscriptions (user_id, plan, assignedDateFormatted, dueDateFormatted, assignedAt, dueDateISO, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
-          targetUserId,
+          actualUserId,
           plan,
           assignedDateFormatted,
           dueDateFormatted,
-          now.toISOString(),
-          dueDate.toISOString(),
-          now.toISOString()
+          assignedAt,
+          dueDateISO,
+          assignedAt
         );
       } catch (sqle) {
         console.warn("Failed to write to SQLite subscriptions:", sqle);
@@ -1944,27 +2465,11 @@ async function startServer() {
       // 2. Save to Firestore if available and quota not exceeded
       if (adminDb && !isFirestoreQuotaExhausted()) {
         try {
-          await adminDb.collection('subscriptions').doc(targetUserId).set(subData, { merge: true });
+          await adminDb.collection('subscriptions').doc(actualUserId).set(subData, { merge: true });
         } catch (e) {
           handleFirestoreError(e, 'set-subscription doc');
         }
       }
-
-      // Target user email topish
-      let targetEmail = '';
-      try {
-        const u = await adminAuth.getUser(targetUserId);
-        targetEmail = u.email || '';
-      } catch (e) {
-        try {
-          if (adminDb && !isFirestoreQuotaExhausted()) {
-            const profDoc = await adminDb.collection('profiles').doc(targetUserId).get();
-            targetEmail = profDoc.data()?.email || '';
-          }
-        } catch (_) {}
-      }
-
-      const displayEmail = targetEmail || targetUserId;
 
       // 3. Save notifications to SQLite & Firestore
       try {
@@ -1972,18 +2477,18 @@ async function startServer() {
           'admin',
           displayEmail,
           "Obuna Berildi",
-          `${displayEmail} foydalanuvchisiga ${plan.toUpperCase()} obuna berildi (${assignedDateFormatted}). To'lov kuni: ${dueDateFormatted}`,
+          `${displayEmail} foydalanuvchisiga ${plan.toUpperCase()} obuna berildi. Berilgan: ${assignedDateFormatted}, To'lov va tugash muddati: ${dueDateFormatted}`,
           'sub_assigned',
-          now.toISOString()
+          assignedAt
         );
-        if (targetUserId) {
+        if (actualUserId) {
           db.prepare("INSERT INTO notifications (userId, userEmail, title, message, type, createdAt, read) VALUES (?, ?, ?, ?, ?, ?, 0)").run(
-            targetUserId,
+            actualUserId,
             displayEmail,
             `Obuna Faollashtirildi (${plan.toUpperCase()})`,
-            `Sizga ${plan.toUpperCase()} obuna taqdim etildi! Berilgan sana: ${assignedDateFormatted}. Amal qilish va to'lov kuni: ${dueDateFormatted}.`,
+            `Sizga ${plan.toUpperCase()} obuna taqdim etildi! Berilgan sana va vaqt: ${assignedDateFormatted}. Amal qilish va to'lov muddati: ${dueDateFormatted} gacha (Keyingi oy aynan shu soat va minutgacha amal qiladi).`,
             'sub_assigned',
-            now.toISOString()
+            assignedAt
           );
         }
       } catch (_) {}
@@ -1994,20 +2499,20 @@ async function startServer() {
             userId: 'admin',
             userEmail: displayEmail,
             title: "Obuna Berildi",
-            message: `${displayEmail} foydalanuvchisiga ${plan.toUpperCase()} obuna berildi (${assignedDateFormatted}). To'lov kuni: ${dueDateFormatted}`,
+            message: `${displayEmail} foydalanuvchisiga ${plan.toUpperCase()} obuna berildi. Berilgan: ${assignedDateFormatted}, To'lov kuni: ${dueDateFormatted}`,
             type: 'sub_assigned',
-            createdAt: now.toISOString(),
+            createdAt: assignedAt,
             read: false
           });
 
-          if (targetUserId) {
+          if (actualUserId) {
             await adminDb.collection('notifications').add({
-              userId: targetUserId,
+              userId: actualUserId,
               userEmail: displayEmail,
               title: `Obuna Faollashtirildi (${plan.toUpperCase()})`,
-              message: `Sizga ${plan.toUpperCase()} obuna taqdim etildi! Berilgan sana: ${assignedDateFormatted}. Amal qilish va to'lov kuni: ${dueDateFormatted}.`,
+              message: `Sizga ${plan.toUpperCase()} obuna taqdim etildi! Berilgan sana va vaqt: ${assignedDateFormatted}. Amal qilish va to'lov muddati: ${dueDateFormatted} gacha.`,
               type: 'sub_assigned',
-              createdAt: now.toISOString(),
+              createdAt: assignedAt,
               read: false
             });
           }
@@ -2018,11 +2523,13 @@ async function startServer() {
 
       res.json({
         success: true,
-        message: `Foydalanuvchi (${displayEmail}) obunasi ${plan.toUpperCase()} ga almashtirildi! Berilgan sana: ${assignedDateFormatted}, To'lov kuni: ${dueDateFormatted}`,
-        targetUserId,
+        message: `Foydalanuvchi (${displayEmail}) obunasi ${plan.toUpperCase()} ga almashtirildi! Berilgan sana: ${assignedDateFormatted}, To'lov muddati: ${dueDateFormatted}`,
+        targetUserId: actualUserId,
         plan,
         assignedDateFormatted,
-        dueDateFormatted
+        dueDateFormatted,
+        dueDateISO,
+        assignedAt
       });
     } catch (err: any) {
       console.error("Admin set-subscription error:", err);
@@ -2324,6 +2831,9 @@ async function startServer() {
       return { allowed: false, maxAllowed: 2, currentCount: 0, plan: 'free', error: "Foydalanuvchi tizimga kirmagan" };
     }
 
+    // Ensure expired subscriptions are automatically downgraded first
+    await checkAndExpireSubscriptions();
+
     // 1. Get user subscription plan from SQLite first
     let plan: 'free' | 'pro' | 'vip' = 'free';
     try {
@@ -2534,11 +3044,49 @@ async function startServer() {
     const { id } = req.params;
 
     if (action === 'start') {
+      const botRow = db.prepare("SELECT owner_id, name FROM bots WHERE id = ?").get(id) as any;
+      const ownerId = botRow?.owner_id || req.user?.uid || '';
+      const plan = await getUserPlanSafe(ownerId);
+      const { active, sched, uzbTime } = isPlanInActiveSchedule(plan);
+
+      if (!active) {
+        return res.status(403).json({
+          error: `Sizning ${sched.name} tarifingiz bo'yicha botlarning ishlash vaqti ${sched.startHour} dan ${sched.endHour} gacha (O'zbekiston vaqti bilan). Hozirgi vaqt: ${uzbTime.timeStr}. Tungi rejimda server resurslarini tejash uchun bot ertalab soat ${sched.startHour} da avtomatik ishga tushadi.`,
+          schedule: {
+            plan,
+            startHour: sched.startHour,
+            endHour: sched.endHour,
+            currentUzbTime: uzbTime.timeStr,
+            isActive: false
+          }
+        });
+      }
+
       userStoppedBots.delete(id);
+      schedulePausedBots.delete(id);
       startBot(id);
       res.json({ message: `Bot ${id} ishga tushirildi`, status: 'running' });
     } else if (action === 'restart') {
+      const botRow = db.prepare("SELECT owner_id, name FROM bots WHERE id = ?").get(id) as any;
+      const ownerId = botRow?.owner_id || req.user?.uid || '';
+      const plan = await getUserPlanSafe(ownerId);
+      const { active, sched, uzbTime } = isPlanInActiveSchedule(plan);
+
+      if (!active) {
+        return res.status(403).json({
+          error: `Sizning ${sched.name} tarifingiz bo'yicha botlarning ishlash vaqti ${sched.startHour} dan ${sched.endHour} gacha (O'zbekiston vaqti bilan). Hozirgi vaqt: ${uzbTime.timeStr}. Tungi rejimda bot ertalab soat ${sched.startHour} da avtomatik ishga tushadi.`,
+          schedule: {
+            plan,
+            startHour: sched.startHour,
+            endHour: sched.endHour,
+            currentUzbTime: uzbTime.timeStr,
+            isActive: false
+          }
+        });
+      }
+
       userStoppedBots.add(id); // Temporarily mark as stopped to prevent close handler auto-restart
+      schedulePausedBots.delete(id);
       const runningBot = runningBots.get(id);
       if (runningBot) {
         try {
@@ -2546,10 +3094,14 @@ async function startServer() {
         } catch (e) {}
         runningBots.delete(id);
       }
-      setTimeout(() => startBot(id), 500);
+      setTimeout(() => {
+        userStoppedBots.delete(id);
+        startBot(id);
+      }, 500);
       res.json({ message: `Bot ${id} qayta ishga tushirildi`, status: 'running' });
     } else if (action === 'stop') {
       userStoppedBots.add(id);
+      schedulePausedBots.delete(id);
       db.prepare('UPDATE bots SET status = ? WHERE id = ?').run('stopped', id);
       updateFirestoreBotStatus(id, 'stopped');
       
@@ -2656,7 +3208,15 @@ async function startServer() {
     const requestAll = req.query.all === 'true' || req.query.scope === 'all';
 
     try {
-      // 1. Agar foydalanuvchining botlari Firestore da bo'lsa va SQLite ga hali tushmagan bo'lsa, sinxronlash
+      // 1. Diskdagi botlarni SQLite DB bilan avtomatik sinxronlash
+      syncBotsFromDisk(db, userId);
+
+      // 2. Bo'sh yoki biriktirilmagan botlarni joriy foydalanuvchiga biriktirish
+      if (userId) {
+        db.prepare("UPDATE bots SET owner_id = ? WHERE owner_id IS NULL OR owner_id = ''").run(userId);
+      }
+
+      // 3. Agar foydalanuvchining botlari Firestore da bo'lsa va SQLite ga hali tushmagan bo'lsa, sinxronlash
       if (adminDb && userId && !isFirestoreQuotaExhausted()) {
         try {
           const userFsDocs = await adminDb.collection('bots').where('userId', '==', userId).get();
@@ -2686,11 +3246,12 @@ async function startServer() {
 
       let rows: any[] = [];
       if (isGlobalAdmin && requestAll) {
-        // Faqat admin sahifasi barcha botlarni so'raganda
         rows = db.prepare('SELECT id, owner_id as userId, name, language, entryPoint, status FROM bots').all();
       } else {
-        // Foydalanuvchi Dashboardi uchun FAQAT o'zining botlari
-        rows = db.prepare('SELECT id, owner_id as userId, name, language, entryPoint, status FROM bots WHERE owner_id = ?').all(userId);
+        rows = db.prepare("SELECT id, owner_id as userId, name, language, entryPoint, status FROM bots WHERE owner_id = ? OR owner_id IS NULL OR owner_id = ''").all(userId);
+        if (rows.length === 0) {
+          rows = db.prepare('SELECT id, owner_id as userId, name, language, entryPoint, status FROM bots').all();
+        }
       }
       
       const bots = rows.map(r => {
@@ -2706,18 +3267,57 @@ async function startServer() {
         };
       });
 
-      return res.json({ bots });
+      const userPlan = await getUserPlanSafe(userId);
+      const scheduleStatus = isPlanInActiveSchedule(userPlan);
+
+      return res.json({
+        bots,
+        userPlan,
+        schedule: {
+          plan: userPlan,
+          planName: scheduleStatus.sched.name,
+          startHour: scheduleStatus.sched.startHour,
+          endHour: scheduleStatus.sched.endHour,
+          currentUzbTime: scheduleStatus.uzbTime.timeStr,
+          isActive: scheduleStatus.active,
+          description: scheduleStatus.sched.description
+        }
+      });
     } catch (error) {
       console.error("Botlar ro'yxatini olishda xato:", error);
       return res.status(500).json({ error: "Botlar ro'yxatini yuklab bo'lmadi" });
     }
   });
 
-  // Bot loglarini olish
+  // O'zbekiston vaqti bo'yicha jadval ma'lumotlari (Public API)
+  app.get("/api/schedule-status", (req, res) => {
+    const uzbTime = getUzbekistanTime();
+    res.json({
+      currentTime: uzbTime.timeStr,
+      timezone: "Asia/Tashkent (UTC+5)",
+      schedules: {
+        free: {
+          ...PLAN_SCHEDULES.free,
+          isActive: isPlanInActiveSchedule('free').active
+        },
+        pro: {
+          ...PLAN_SCHEDULES.pro,
+          isActive: isPlanInActiveSchedule('pro').active
+        },
+        vip: {
+          ...PLAN_SCHEDULES.vip,
+          isActive: isPlanInActiveSchedule('vip').active
+        }
+      }
+    });
+  });
+
+  // Bot loglarini olish (Optimallashtirilgan - so'nggi 300 ta log)
   app.get("/api/bots/:id/logs", requireAuth, async (req: AuthRequest, res) => {
     const { id } = req.params;
+    const limit = Math.min(Math.max(Number(req.query.limit) || 300, 50), 1000);
     try {
-      const logs = db.prepare('SELECT type, message, created_at as createdAt FROM bot_logs WHERE bot_id = ? ORDER BY id ASC').all(id);
+      const logs = db.prepare('SELECT type, message, created_at as createdAt FROM (SELECT id, type, message, created_at FROM bot_logs WHERE bot_id = ? ORDER BY id DESC LIMIT ?) ORDER BY id ASC').all(id, limit);
       res.json({ logs });
     } catch (error) {
       console.error("Loglarni olishda xato:", error);
@@ -2748,24 +3348,8 @@ async function startServer() {
     try {
       // 1. Foydalanuvchi obuna rejasi va kunlik to'kin limitini tekshirish
       const LIMITS = { free: 45, pro: 145, vip: 500 };
-      let plan: 'free' | 'pro' | 'vip' = 'free';
-      let currentUsage = 0;
-      let usageRef: any = null;
-
-      try {
-        if (adminDb && !isFirestoreQuotaExhausted()) {
-          const subDoc = await adminDb.collection('subscriptions').doc(userId).get();
-          if (subDoc.exists) {
-            plan = (subDoc.data()?.plan as any) || 'free';
-          }
-          const todayDate = new Date().toISOString().split('T')[0];
-          usageRef = adminDb.collection('usage').doc(userId).collection('daily-usage').doc(todayDate);
-          const usageDoc = await usageRef.get();
-          currentUsage = usageDoc.exists ? (usageDoc.data()?.count || 0) : 0;
-        }
-      } catch (firestoreErr) {
-        handleFirestoreError(firestoreErr, "fix-errors usage check");
-      }
+      const plan = await getUserPlanSafe(userId);
+      const { count: currentUsage, usageRef } = await getUserDailyUsageSafe(userId);
 
       const limit = LIMITS[plan] || LIMITS.free;
       const COST_TOKENS = 30;
@@ -2982,17 +3566,7 @@ Javobni FAQAT ushbu formatdagi JSON ko'rinishida bering:
       }
 
       // 7. Tokenni ayirish (30 to'kin)
-      if (usageRef && adminDb && !isFirestoreQuotaExhausted()) {
-        try {
-          await adminDb.runTransaction(async (t) => {
-            const docSnap: any = await t.get(usageRef);
-            const count = (docSnap && docSnap.exists) ? (docSnap.data()?.count || 0) : 0;
-            t.set(usageRef, { count: count + COST_TOKENS }, { merge: true });
-          });
-        } catch (tErr) {
-          handleFirestoreError(tErr, "token deduction transaction");
-        }
-      }
+      await incrementUserDailyUsageSafe(userId, COST_TOKENS, usageRef);
 
       const remainingTokens = Math.max(0, limit - (currentUsage + COST_TOKENS));
 
@@ -3644,22 +4218,24 @@ Javobni FAQAT ushbu formatdagi JSON ko'rinishida bering:
       );
 
       // Save Firestore record
-      try {
-        const botDocData: any = {
-          userId: req.user?.uid || '',
-          userEmail: req.user?.email || '',
-          name: botName,
-          language,
-          entryPoint,
-          status: 'stopped',
-          createdAt: new Date().toISOString()
-        };
-        if (zipBuffer.length <= 900000) {
-          botDocData.codeZipBase64 = zipBuffer.toString('base64');
+      if (adminDb && !isFirestoreQuotaExhausted()) {
+        try {
+          const botDocData: any = {
+            userId: req.user?.uid || '',
+            userEmail: req.user?.email || '',
+            name: botName,
+            language,
+            entryPoint,
+            status: 'stopped',
+            createdAt: new Date().toISOString()
+          };
+          if (zipBuffer.length <= 900000) {
+            botDocData.codeZipBase64 = zipBuffer.toString('base64');
+          }
+          await adminDb.collection('bots').doc(botId).set(botDocData, { merge: true });
+        } catch (fsErr) {
+          handleFirestoreError(fsErr, "save github bot doc");
         }
-        await adminDb.collection('bots').doc(botId).set(botDocData, { merge: true });
-      } catch (fsErr) {
-        console.error("Failed to save github bot doc to Firestore:", fsErr);
       }
 
       addBotLog(botId, 'system', `✅ GitHub repozitoriyasi (${owner}/${repo}) muvaffaqiyatli import qilindi (${relativeFiles.length} ta fayl). Kirish nuqtasi: ${entryPoint}`);
@@ -3765,15 +4341,19 @@ Javobni FAQAT ushbu formatdagi JSON ko'rinishida bering:
         db.prepare('UPDATE bots SET code = ? WHERE id = ?').run(updatedZipBuffer, id);
 
         // Firestore yangilash
-        if (adminDb) {
-          const updateData: any = {
-            envData: parsedEnv,
-            updatedAt: new Date().toISOString()
-          };
-          if (updatedZipBuffer.length <= 900000) {
-            updateData.codeZipBase64 = updatedZipBuffer.toString('base64');
+        if (adminDb && !isFirestoreQuotaExhausted()) {
+          try {
+            const updateData: any = {
+              envData: parsedEnv,
+              updatedAt: new Date().toISOString()
+            };
+            if (updatedZipBuffer.length <= 900000) {
+              updateData.codeZipBase64 = updatedZipBuffer.toString('base64');
+            }
+            await adminDb.collection('bots').doc(id).set(updateData, { merge: true });
+          } catch (fsErr) {
+            handleFirestoreError(fsErr, 'save env data');
           }
-          await adminDb.collection('bots').doc(id).set(updateData, { merge: true });
         }
       } catch (dbSyncErr) {
         console.warn(`[POST /api/bots/:id/env] Warning during zip/DB sync for ${id}:`, dbSyncErr);
@@ -3819,21 +4399,8 @@ Javobni FAQAT ushbu formatdagi JSON ko'rinishida bering:
 
       // Limit checking
       const LIMITS = { free: 45, pro: 145, vip: 500 };
-      let plan: 'free' | 'pro' | 'vip' = 'free';
-      let currentUsage = 0;
-      let usageRef: any = null;
-
-      try {
-        const subDoc = await adminDb.collection('subscriptions').doc(userId).get();
-        plan = (subDoc.exists ? subDoc.data()?.plan : 'free') as 'free' | 'pro' | 'vip';
-
-        const date = new Date().toISOString().split('T')[0];
-        usageRef = adminDb.collection('usage').doc(userId).collection('daily-usage').doc(date);
-        const usageDoc = await usageRef.get();
-        currentUsage = usageDoc.exists ? (usageDoc.data()?.count || 0) : 0;
-      } catch (firestoreErr) {
-        console.warn("Firestore usage fetch error (handled gracefully):", firestoreErr);
-      }
+      const plan = await getUserPlanSafe(userId);
+      const { count: currentUsage, usageRef } = await getUserDailyUsageSafe(userId);
 
       const limit = LIMITS[plan] || LIMITS.free;
 
@@ -3842,16 +4409,7 @@ Javobni FAQAT ushbu formatdagi JSON ko'rinishida bering:
       }
 
       const incrementUsage = async () => {
-        if (!usageRef) return;
-        try {
-          await adminDb.runTransaction(async (t) => {
-              const docSnap = await t.get(usageRef) as any;
-              const count = docSnap.exists ? (docSnap.data()?.count || 0) : 0;
-              t.set(usageRef, { count: count + 1 }, { merge: true });
-          });
-        } catch (e) {
-          console.warn("Usage transaction failed gracefully:", e);
-        }
+        await incrementUserDailyUsageSafe(userId, 1, usageRef);
       };
 
       const { mode, prompt, chatHistory } = req.body;
@@ -4518,7 +5076,10 @@ Bizning platforma tuzilishi va imkoniyatlari quyidagicha:
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, {
+      maxAge: '1d',
+      etag: true
+    }));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
@@ -4594,18 +5155,63 @@ async function restoreAndSuperviseBots() {
     console.error("🤖 [Bot Supervisor]: Dastlabki tiklash xatoligi:", err);
   }
 
-  // Regular audit loop every 10s
+  // Regular audit & Uzbekistan time schedule loop every 10s
   setInterval(async () => {
     try {
-      const activeDbBots = db.prepare("SELECT id FROM bots WHERE status = 'running'").all() as any[];
-      for (const b of activeDbBots) {
-        if (!userStoppedBots.has(b.id) && !runningBots.has(b.id) && !startingBots.has(b.id)) {
-          console.log(`🤖 [Bot Supervisor Audit]: Bot ${b.id} ishlayotgan deb belgilangan, lekin jarayon topilmadi. Qayta tushirilmoqda...`);
-          addBotLog(b.id, 'system', `🔄 [Supervisor Audit]: Bot jarayoni fonda qayta tiklanmoqda...`);
-          startBot(b.id).catch(e => console.error(`Audit restart error for ${b.id}:`, e));
+      const allBots = db.prepare("SELECT id, owner_id, name, status FROM bots").all() as any[];
+      for (const b of allBots) {
+        const ownerId = b.owner_id || '';
+        const plan = await getUserPlanSafe(ownerId);
+        const { active, sched, uzbTime } = isPlanInActiveSchedule(plan);
+
+        if (!active) {
+          // TUNGI REJIM (Server resurslarini tejash)
+          if (runningBots.has(b.id) || b.status === 'running') {
+            console.log(`[Avto-Jadval Audit]: Bot ${b.name || b.id} (${plan.toUpperCase()}) tungi rejimda to'xtatilmoqda. Hozirgi O'zb vaqti: ${uzbTime.timeStr}`);
+            schedulePausedBots.add(b.id);
+
+            // Jarayonni to'xtatish
+            const runningBot = runningBots.get(b.id);
+            if (runningBot) {
+              try {
+                if (runningBot.pid) killTree(runningBot.pid);
+              } catch (_) {}
+              runningBots.delete(b.id);
+            }
+
+            db.prepare("UPDATE bots SET status = 'stopped' WHERE id = ?").run(b.id);
+            updateFirestoreBotStatus(b.id, 'stopped');
+
+            addBotLog(
+              b.id,
+              'system',
+              `[Avto-Jadval]: ${sched.name} tarifi bo'yicha tungi rejim (Faol vaqt: ${sched.startHour} - ${sched.endHour}, O'zbekiston vaqti: ${uzbTime.timeStr}). Server resurslarini tejash uchun bot to'xtatildi. Ertalab soat ${sched.startHour} da avtomatik ishga tushadi.`
+            );
+          }
+        } else {
+          // KUNDUZGI FAOL ISH VAQTI
+          const shouldStart = schedulePausedBots.has(b.id) || (b.status === 'running' && !userStoppedBots.has(b.id) && !runningBots.has(b.id));
+          if (shouldStart && !startingBots.has(b.id)) {
+            const wasPausedBySchedule = schedulePausedBots.has(b.id);
+            schedulePausedBots.delete(b.id);
+
+            console.log(`[Avto-Jadval Audit]: Bot ${b.name || b.id} (${plan.toUpperCase()}) faol vaqtda ishga tushirilmoqda. Hozirgi O'zb vaqti: ${uzbTime.timeStr}`);
+            if (wasPausedBySchedule) {
+              addBotLog(
+                b.id,
+                'system',
+                `[Avto-Jadval]: ${sched.name} tarifi bo'yicha kunduzgi faol ish vaqti boshlandi (${sched.startHour} - ${sched.endHour}, O'zbekiston vaqti: ${uzbTime.timeStr}). Bot avtomatik ishga tushirilmoqda.`
+              );
+            } else {
+              addBotLog(b.id, 'system', `[Supervisor Audit]: Bot jarayoni fonda qayta tiklanmoqda...`);
+            }
+            startBot(b.id).catch(e => console.error(`Audit schedule start error for ${b.id}:`, e));
+          }
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      console.error("Supervisor schedule loop error:", e);
+    }
   }, 10000);
 }
 

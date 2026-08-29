@@ -1,40 +1,86 @@
-import { setDoc, addDoc, updateDoc, deleteDoc, doc, collection, DocumentReference, CollectionReference, UpdateData } from 'firebase/firestore';
-import { secondaryDb } from './firebase';
+import { setDoc, addDoc, updateDoc, deleteDoc, doc, collection, DocumentReference, CollectionReference, UpdateData, disableNetwork } from 'firebase/firestore';
+import { db, secondaryDb } from './firebase';
 
-const withTimeout = <T>(promise: Promise<T>, timeoutMs = 2500): Promise<T> => {
+let primaryQuotaExhausted = true;
+
+// Immediately disable network on primary db to prevent SDK backoff retry loops
+try {
+  disableNetwork(db).catch(() => {});
+} catch (_) {}
+
+const withTimeout = <T>(promise: Promise<T>, timeoutMs = 2000): Promise<T> => {
   return Promise.race([
     promise,
     new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Firestore operation timed out')), timeoutMs))
   ]);
 };
 
-export async function safeSetDoc(docRef: DocumentReference, data: any, options?: { merge?: boolean }) {
+export function markPrimaryQuotaExhausted() {
+  primaryQuotaExhausted = true;
   try {
-    await withTimeout(setDoc(docRef, data, options));
-  } catch (err) {
-    // Primary quota or offline or timeout
+    disableNetwork(db).catch(() => {});
+  } catch (_) {}
+}
+
+export const markFirestoreQuotaExhausted = markPrimaryQuotaExhausted;
+
+export function isPrimaryQuotaExhausted() {
+  return primaryQuotaExhausted;
+}
+
+export const isFirestoreQuotaExhausted = isPrimaryQuotaExhausted;
+
+export async function safeSetDoc(docRef: DocumentReference, data: any, options?: { merge?: boolean }) {
+  // Try secondaryDb first if primary quota is known to be exhausted
+  if (primaryQuotaExhausted && secondaryDb) {
+    try {
+      const secDocRef = doc(secondaryDb, docRef.path);
+      await withTimeout(setDoc(secDocRef, data, options));
+      return;
+    } catch (_) {
+      return;
+    }
   }
 
-  // Backup / Dual-Write to Secondary Firebase database
+  try {
+    await withTimeout(setDoc(docRef, data, options));
+  } catch (err: any) {
+    if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota limit exceeded')) {
+      markPrimaryQuotaExhausted();
+    }
+  }
+
+  // Backup write to Secondary Firebase database
   try {
     if (secondaryDb && docRef?.path) {
       const secDocRef = doc(secondaryDb, docRef.path);
       await withTimeout(setDoc(secDocRef, data, options), 1500);
     }
-  } catch {
-    // Silent secondary failover
-  }
+  } catch (_) {}
 }
 
 export async function safeAddDoc(collRef: CollectionReference, data: any) {
   let resultDoc: DocumentReference | null = null;
-  try {
-    resultDoc = (await withTimeout(addDoc(collRef, data))) as DocumentReference;
-  } catch {
-    // Primary quota or offline or timeout
+
+  if (primaryQuotaExhausted && secondaryDb) {
+    try {
+      const secCollRef = collection(secondaryDb, collRef.path);
+      resultDoc = (await withTimeout(addDoc(secCollRef, data))) as DocumentReference;
+      return resultDoc;
+    } catch (_) {
+      return ({ id: 'backup_' + Math.random().toString(36).substring(2, 9) } as unknown as DocumentReference);
+    }
   }
 
-  // Backup / Dual-Write to Secondary Firebase database
+  try {
+    resultDoc = (await withTimeout(addDoc(collRef, data))) as DocumentReference;
+  } catch (err: any) {
+    if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota limit exceeded')) {
+      markPrimaryQuotaExhausted();
+    }
+  }
+
+  // Backup write to Secondary Firebase database
   try {
     if (secondaryDb && collRef?.path) {
       const secCollRef = collection(secondaryDb, collRef.path);
@@ -43,48 +89,65 @@ export async function safeAddDoc(collRef: CollectionReference, data: any) {
         resultDoc = secRes as DocumentReference;
       }
     }
-  } catch {
-    // Silent secondary failover
-  }
+  } catch (_) {}
 
   return resultDoc || ({ id: 'backup_' + Math.random().toString(36).substring(2, 9) } as unknown as DocumentReference);
 }
 
 export async function safeUpdateDoc(docRef: DocumentReference, data: UpdateData<any>) {
-  try {
-    await withTimeout(updateDoc(docRef, data));
-  } catch {
-    // Primary quota or offline or timeout
+  if (primaryQuotaExhausted && secondaryDb) {
+    try {
+      const secDocRef = doc(secondaryDb, docRef.path);
+      await withTimeout(updateDoc(secDocRef, data));
+      return;
+    } catch (_) {
+      return;
+    }
   }
 
-  // Backup / Dual-Write to Secondary Firebase database
+  try {
+    await withTimeout(updateDoc(docRef, data));
+  } catch (err: any) {
+    if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota limit exceeded')) {
+      markPrimaryQuotaExhausted();
+    }
+  }
+
   try {
     if (secondaryDb && docRef?.path) {
       const secDocRef = doc(secondaryDb, docRef.path);
       await withTimeout(updateDoc(secDocRef, data), 1500);
     }
-  } catch {
-    // Silent secondary failover
-  }
+  } catch (_) {}
 }
 
 export async function safeDeleteDoc(docRef: DocumentReference) {
-  try {
-    await withTimeout(deleteDoc(docRef));
-  } catch {
-    // Primary quota or offline or timeout
+  if (primaryQuotaExhausted && secondaryDb) {
+    try {
+      const secDocRef = doc(secondaryDb, docRef.path);
+      await withTimeout(deleteDoc(secDocRef), 1500);
+      return;
+    } catch (_) {
+      return;
+    }
   }
 
-  // Backup / Dual-Write to Secondary Firebase database
+  try {
+    await withTimeout(deleteDoc(docRef));
+  } catch (err: any) {
+    if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota limit exceeded')) {
+      markPrimaryQuotaExhausted();
+    }
+  }
+
   try {
     if (secondaryDb && docRef?.path) {
       const secDocRef = doc(secondaryDb, docRef.path);
       await withTimeout(deleteDoc(secDocRef), 1500);
     }
-  } catch {
-    // Silent secondary failover
-  }
+  } catch (_) {}
 }
+
 
 
 

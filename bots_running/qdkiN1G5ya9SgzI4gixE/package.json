@@ -1,7 +1,0 @@
-{
-  "name": "cloudbot-telegram-bot",
-  "version": "1.0.0",
-  "description": "Telegram Bot hosted on CloudBot",
-  "main": "index.js",
-  "dependencies": {}
-}

@@ -1,4 +1,0 @@
-aiosqlite
-uuid
-aiogram
-openai

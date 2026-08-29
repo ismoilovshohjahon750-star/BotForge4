@@ -326,7 +326,7 @@ export const Docs: React.FC = () => {
                     Bepul (Free) Obuna
                   </h3>
                   <p className="text-muted-foreground">
-                    Bepul obunadagi foydalanuvchilar 2 tagacha bot yuklashlari mumkin. Har bir yuklangan bot <strong>2 oy davomida</strong> 24/7 rejimida ishlaydi. 2 oylik muddat tugagandan so'ng, bot avtomatik tarzda to'xtatiladi. Botning ishlashini davom ettirish uchun Pro yoki VIP tarifiga o'tish talab etiladi.
+                    Bepul obunadagi foydalanuvchilar 2 tagacha bot yuklashlari mumkin. Har bir yuklangan bot <strong>2 oy davomida</strong> ishlaydi. Server resurslarini optimal tejash maqsadida botlar <strong>ertalab soat 07:25 da avtomatik yonadi</strong> va <strong>kechki soat 21:00 da to'xtaydi</strong> (O'zbekiston vaqti bilan). 2 oylik muddat tugagandan so'ng, bot avtomatik tarzda to'xtatiladi.
                   </p>
                 </div>
 
@@ -336,7 +336,7 @@ export const Docs: React.FC = () => {
                     Pro Obuna
                   </h3>
                   <p className="text-muted-foreground">
-                    Pro obunadagi foydalanuvchilar 10 tagacha bot yuklashi mumkin. Pro obunada yaratilgan botlar <strong>10 oy davomida</strong> to'xtovsiz va kafolatli ishlaydi. Bu muddat yirik loyihalar uchun qulaylik yaratadi.
+                    Pro obunadagi foydalanuvchilar 10 tagacha bot yuklashi mumkin. Pro obunada yaratilgan botlar <strong>10 oy davomida</strong> kafolatli ishlaydi. Botlar <strong>ertalab soat 06:30 da yonadi</strong> va <strong>kechki soat 22:35 da o'chadi</strong> (O'zbekiston vaqti bilan).
                   </p>
                 </div>
 
@@ -346,7 +346,7 @@ export const Docs: React.FC = () => {
                     VIP Obuna
                   </h3>
                   <p className="text-muted-foreground">
-                    VIP obunadagi foydalanuvchilarning botlariga muddat bo'yicha hech qanday cheklov qo'yilmaydi. Barcha 30 tagacha botlar <strong>cheksiz ravishda (umrbod)</strong> barqaror va maksimal tezlikda ishlab turadi.
+                    VIP obunadagi foydalanuvchilarning 30 tagacha botlari <strong>cheksiz ravishda (umrbod)</strong> barqaror ishlaydi. Botlar <strong>ertalab soat 04:00 da yonadi</strong> va <strong>kechki soat 00:00 (yarim kecha) gacha</strong> uzluksiz maksimal tezlikda ishlab turadi.
                   </p>
                 </div>
               </div>

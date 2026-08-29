@@ -5,10 +5,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Badge } from '../components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { Plus, Play, Square, RefreshCcw, FileUp, Terminal, Activity, FileText, Trash2, Search, Copy, Check, Radio, Clock, Shield, Cpu, Filter, X, ArrowLeft, Key, Eye, EyeOff, Settings, Sliders, Database, Github, Send, ExternalLink, Sparkles, Wand2, AlertTriangle, Mail } from 'lucide-react';
+import { Plus, Play, Square, RefreshCcw, FileUp, Terminal, Activity, FileText, Trash2, Search, Copy, Check, Radio, Clock, Shield, Cpu, Filter, X, ArrowLeft, Key, Eye, EyeOff, Settings, Sliders, Database, Github, Send, ExternalLink, Sparkles, Wand2, AlertTriangle, Mail, Zap } from 'lucide-react';
 import { collection, query, where, onSnapshot, addDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { GithubAuthProvider, signInWithPopup, linkWithPopup, sendEmailVerification } from 'firebase/auth';
-import { safeSetDoc, safeUpdateDoc, safeDeleteDoc } from '../lib/safeFirestore';
+import { safeSetDoc, safeUpdateDoc, safeDeleteDoc, isFirestoreQuotaExhausted } from '../lib/safeFirestore';
 import { db, auth, githubProvider } from '../lib/firebase';
 import { Bot, BotStatus, BotLog } from '../types';
 import { toast } from 'sonner';
@@ -148,6 +148,15 @@ export const Dashboard: React.FC = () => {
 
   // User subscription state
   const [userPlan, setUserPlan] = useState<'free' | 'pro' | 'vip'>('free');
+  const [scheduleInfo, setScheduleInfo] = useState<{
+    plan: 'free' | 'pro' | 'vip';
+    planName: string;
+    startHour: string;
+    endHour: string;
+    currentUzbTime: string;
+    isActive: boolean;
+    description: string;
+  } | null>(null);
 
   // Terminal Real-Time Logs states
   const [selectedBotForLogs, setSelectedBotForLogs] = useState<Bot | null>(null);
@@ -164,9 +173,10 @@ export const Dashboard: React.FC = () => {
   const [lastRefreshedAt, setLastRefreshedAt] = useState<string>('');
   const logsEndRef = useRef<HTMLDivElement>(null);
 
-  // Live timer tick every 1 sec for Uptime update
+  // Live timer tick for Uptime update (throttled when tab is inactive)
   useEffect(() => {
     const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       setNowTime(Date.now());
     }, 1000);
     return () => clearInterval(timer);
@@ -174,15 +184,39 @@ export const Dashboard: React.FC = () => {
 
   useEffect(() => {
     if (!user) return;
+
+    const fetchSubFromApi = async () => {
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch('/api/user/subscription', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.plan) {
+            setUserPlan(data.plan);
+          }
+        }
+      } catch (e) {}
+    };
+
+    fetchSubFromApi();
+
+    if (isFirestoreQuotaExhausted()) return;
+
     const subRef = doc(db, 'subscriptions', user.uid);
-    const unsubSub = onSnapshot(subRef, (snapshot) => {
+    let unsubSub = () => {};
+    unsubSub = onSnapshot(subRef, (snapshot) => {
       if (snapshot.exists()) {
         setUserPlan((snapshot.data()?.plan as any) || 'free');
       } else {
         setUserPlan('free');
       }
-    }, () => {
-      setUserPlan('free');
+    }, (err: any) => {
+      fetchSubFromApi();
+      if (err?.code === 'resource-exhausted' || err?.code === 'unavailable') {
+        unsubSub();
+      }
     });
     return () => unsubSub();
   }, [user]);
@@ -229,11 +263,12 @@ export const Dashboard: React.FC = () => {
     await fetchLogs(bot.id);
     setIsLogsLoading(false);
 
-    // Poll logs every 2.5 seconds
+    // Poll logs every 3 seconds (pauses automatically if browser tab is in background)
     if (logsIntervalId) clearInterval(logsIntervalId);
     const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       fetchLogs(bot.id);
-    }, 2500);
+    }, 3000);
     setLogsIntervalId(interval);
   };
 
@@ -365,13 +400,13 @@ export const Dashboard: React.FC = () => {
           const data = await res.json();
           if (data.bots && isMounted) {
             const validBots = (data.bots as Bot[]).filter(b => 
-              (!b.userId || b.userId === user.uid) && !deletedBotIdsRef.current.has(b.id)
+              (!b.userId || b.userId === user.uid || user.email === 'ismoilovshohjahon750@gmail.com') && !deletedBotIdsRef.current.has(b.id)
             );
             setBots(prev => {
               const map = new Map<string, Bot>();
               // Keep previous user bots
               prev.forEach(b => {
-                if ((!b.userId || b.userId === user.uid) && !deletedBotIdsRef.current.has(b.id)) {
+                if ((!b.userId || b.userId === user.uid || user.email === 'ismoilovshohjahon750@gmail.com') && !deletedBotIdsRef.current.has(b.id)) {
                   map.set(b.id, b);
                 }
               });
@@ -385,6 +420,12 @@ export const Dashboard: React.FC = () => {
               });
               return Array.from(map.values());
             });
+          }
+          if (data.userPlan && isMounted) {
+            setUserPlan(data.userPlan);
+          }
+          if (data.schedule && isMounted) {
+            setScheduleInfo(data.schedule);
           }
         }
       } catch (err) {
@@ -425,8 +466,11 @@ export const Dashboard: React.FC = () => {
           });
         }
         if (isMounted) setLoading(false);
-      }, (error) => {
+      }, (error: any) => {
         console.warn("Firestore bots listener notice:", error?.message || error);
+        if (error?.code === 'resource-exhausted' || error?.code === 'unavailable') {
+          unsubscribe();
+        }
         fetchFromApi();
         if (isMounted) setLoading(false);
       });
@@ -436,13 +480,24 @@ export const Dashboard: React.FC = () => {
       if (isMounted) setLoading(false);
     }
 
-    const interval = setInterval(fetchFromApi, 6000);
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      fetchFromApi();
+    }, 8000);
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchFromApi();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       isMounted = false;
       clearTimeout(fallbackTimer);
       unsubscribe();
       clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [user]);
 

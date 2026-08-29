@@ -3,7 +3,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useSearchParams } from 'react-router-dom';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, doc, query, where, getDocs } from 'firebase/firestore';
-import { safeAddDoc, safeSetDoc, safeDeleteDoc, safeUpdateDoc } from '../lib/safeFirestore';
+import { safeAddDoc, safeSetDoc, safeDeleteDoc, safeUpdateDoc, isFirestoreQuotaExhausted } from '../lib/safeFirestore';
 import { 
   MessageSquare, Send, Plus, Search, Trash2, CheckCheck,
   User, ShieldAlert, Clock, ArrowLeft, RefreshCw, X, Sparkles, MessageCircle,
@@ -160,7 +160,8 @@ export const Messages: React.FC = () => {
   // Load all user profiles for searching
   useEffect(() => {
     if (!user) return;
-    const unsub = onSnapshot(collection(db, 'profiles'), (snapshot) => {
+    let unsub = () => {};
+    unsub = onSnapshot(collection(db, 'profiles'), (snapshot) => {
       const profs = snapshot.docs.map(d => {
         const data = d.data();
         const email = data.email || '';
@@ -175,8 +176,11 @@ export const Messages: React.FC = () => {
         };
       }).filter(p => p.id !== user.uid && p.email?.toLowerCase() !== user.email?.toLowerCase());
       setAllProfiles(profs);
-    }, (err) => {
-      console.warn("Profiles listen error:", err);
+    }, (err: any) => {
+      console.warn("Profiles listen error:", err?.message || err);
+      if (err?.code === 'resource-exhausted' || err?.code === 'unavailable') {
+        unsub();
+      }
     });
     return () => unsub();
   }, [user]);
@@ -185,7 +189,8 @@ export const Messages: React.FC = () => {
   useEffect(() => {
     if (!user) return;
 
-    const unsub = onSnapshot(collection(db, 'contact_messages'), (snapshot) => {
+    let unsub = () => {};
+    unsub = onSnapshot(collection(db, 'contact_messages'), (snapshot) => {
       const allMsgs = snapshot.docs.map(d => ({
         id: d.id,
         ...d.data()
@@ -204,8 +209,11 @@ export const Messages: React.FC = () => {
 
       filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setMessagesList(filtered);
-    }, (err) => {
-      console.warn("Contact messages listen error:", err);
+    }, (err: any) => {
+      console.warn("Contact messages listen error:", err?.message || err);
+      if (err?.code === 'resource-exhausted' || err?.code === 'unavailable') {
+        unsub();
+      }
     });
 
     return () => unsub();

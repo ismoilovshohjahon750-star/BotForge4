@@ -138,8 +138,11 @@ export const NotificationBell: React.FC = () => {
 
       setNotifications(relevant);
       initialLoad = false;
-    }, (error) => {
-      console.warn("Notification snapshot warning:", error);
+    }, (error: any) => {
+      console.warn("Notification snapshot warning:", error?.message || error);
+      if (error?.code === 'resource-exhausted' || error?.code === 'unavailable') {
+        unsub();
+      }
     });
 
     return () => unsub();

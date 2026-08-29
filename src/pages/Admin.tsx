@@ -9,7 +9,7 @@ import { Shield, Search, UserCheck, Crown, Zap, Bot, MessageSquare, Save, Refres
 import { LogoIcon } from '../components/Logo';
 import { collection, onSnapshot, doc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { safeSetDoc, safeAddDoc, safeDeleteDoc } from '../lib/safeFirestore';
+import { safeSetDoc, safeAddDoc, safeDeleteDoc, isFirestoreQuotaExhausted } from '../lib/safeFirestore';
 import { Profile, Bot as BotType, PlanType } from '../types';
 import { toast } from 'sonner';
 import { Input } from '../components/ui/input';
@@ -103,20 +103,41 @@ export const Admin: React.FC = () => {
     };
     fetchApiUsers();
 
+    const fetchApiBots = async () => {
+      try {
+        const token = await user?.getIdToken();
+        const res = await fetch('/api/bots?scope=all', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.bots)) {
+            setBots(data.bots);
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to fetch admin bots API:", e);
+      }
+    };
+    fetchApiBots();
+
     // 1. Fetch Profiles
-    const unsubProfiles = onSnapshot(collection(db, 'profiles'), (snapshot) => {
+    let unsubProfiles = () => {};
+    unsubProfiles = onSnapshot(collection(db, 'profiles'), (snapshot) => {
       const profs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Profile));
       setProfiles(prev => {
         const map = new Map(prev.map(p => [p.id, p]));
         profs.forEach(p => map.set(p.id, p));
         return Array.from(map.values());
       });
-    }, (error) => {
+    }, (error: any) => {
       console.warn("Profiles snapshot notice (quota or offline):", error?.message || error);
+      if (error?.code === 'resource-exhausted' || error?.code === 'unavailable') unsubProfiles();
     });
 
     // 2. Fetch Subscriptions in Real-Time
-    const unsubSubs = onSnapshot(collection(db, 'subscriptions'), (snapshot) => {
+    let unsubSubs = () => {};
+    unsubSubs = onSnapshot(collection(db, 'subscriptions'), (snapshot) => {
       const subsMap: Record<string, PlanType> = {};
       const detailsMap: Record<string, SubDetail> = {};
 
@@ -134,22 +155,26 @@ export const Admin: React.FC = () => {
       });
       setSubscriptions(subsMap);
       setSubDetails(detailsMap);
-    }, (error) => {
+    }, (error: any) => {
       console.warn("Subscriptions snapshot notice (quota or offline):", error?.message || error);
+      if (error?.code === 'resource-exhausted' || error?.code === 'unavailable') unsubSubs();
     });
 
     // 3. Fetch Bots
-    const unsubBots = onSnapshot(collection(db, 'bots'), (snapshot) => {
+    let unsubBots = () => {};
+    unsubBots = onSnapshot(collection(db, 'bots'), (snapshot) => {
       setBots(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as BotType)));
-    }, (error) => {
+    }, (error: any) => {
       console.warn("Bots snapshot notice (quota or offline):", error?.message || error);
+      if (error?.code === 'resource-exhausted' || error?.code === 'unavailable') unsubBots();
     });
 
     // 4. Fetch Contact Messages
-    const unsubMsgs = onSnapshot(collection(db, 'contact_messages'), (snapshot) => {
+    let unsubMsgs = () => {};
+    unsubMsgs = onSnapshot(collection(db, 'contact_messages'), (snapshot) => {
       setContactMsgs(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ContactMsg)));
-    }, (error) => {
-      // Ignore if collection not created yet
+    }, (error: any) => {
+      if (error?.code === 'resource-exhausted' || error?.code === 'unavailable') unsubMsgs();
     });
 
     return () => {
@@ -167,7 +192,7 @@ export const Admin: React.FC = () => {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const handleUpdateSubscription = async (targetUserId: string, planToSet?: PlanType) => {
+  const handleUpdateSubscription = async (targetUserId: string, planToSet?: PlanType, customDays?: number) => {
     const targetPlan = planToSet || selectedPlans[targetUserId] || subscriptions[targetUserId] || 'free';
     setUpdatingUser(targetUserId);
 
@@ -183,7 +208,8 @@ export const Admin: React.FC = () => {
         },
         body: JSON.stringify({
           targetUserId,
-          plan: targetPlan
+          plan: targetPlan,
+          customDurationDays: customDays
         })
       });
 
@@ -191,6 +217,19 @@ export const Admin: React.FC = () => {
       if (!res.ok) {
         throw new Error(data.error || "Xatolik yuz berdi");
       }
+
+      // Immediately update local UI state
+      setSubscriptions(prev => ({ ...prev, [targetUserId]: targetPlan }));
+      setSubDetails(prev => ({
+        ...prev,
+        [targetUserId]: {
+          plan: targetPlan,
+          assignedDateFormatted: data.assignedDateFormatted || (targetPlan === 'free' ? null : data.assignedDateFormatted),
+          dueDateFormatted: data.dueDateFormatted || (targetPlan === 'free' ? null : data.dueDateFormatted),
+          assignedAt: data.assignedAt,
+          dueDateISO: data.dueDateISO
+        }
+      }));
 
       toast.success(data.message || `Foydalanuvchi obunasi ${targetPlan.toUpperCase()} ga muvaffaqiyatli o'zgartirildi!`);
     } catch (err: any) {

@@ -97,7 +97,8 @@ export const BotlyAi: React.FC = () => {
       where('userId', '==', user.uid),
       orderBy('timestamp', 'desc')
     );
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    let unsubscribe = () => {};
+    unsubscribe = onSnapshot(q, (snapshot) => {
       const items = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
@@ -106,8 +107,11 @@ export const BotlyAi: React.FC = () => {
       try {
         localStorage.setItem(`botly_chats_${user.uid}`, JSON.stringify(items));
       } catch (e) {}
-    }, (error) => {
+    }, (error: any) => {
       console.warn("Chat tarixi obunasida ogohlantirish (quota or offline):", error?.message || error);
+      if (error?.code === 'resource-exhausted' || error?.code === 'unavailable') {
+        unsubscribe();
+      }
       try {
         const cached = localStorage.getItem(`botly_chats_${user.uid}`);
         if (cached) {

@@ -60,8 +60,9 @@ export const Pricing: React.FC = () => {
       features: [
         "2 tagacha bot joylashtirish",
         "Botlar 2 oy ishlab beradi",
+        "Ish vaqti: 07:25 dan 21:00 gacha (O'zb vaqti)",
         "Botly AI limiti: 45 tokin/kuniga",
-        "Uptime: 24/7 server uzluksizligi",
+        "Avtomatik ertalabki tiklanish",
         "Standart qo'llab-quvvatlash"
       ],
       button: "Hozir boshlang",
@@ -70,13 +71,13 @@ export const Pricing: React.FC = () => {
     {
       id: 'pro',
       name: "Pro",
-      price: "$19",
+      price: "$20",
       desc: "Kichik biznes va faol loyihalar uchun",
       features: [
         "10 tagacha bot joylashtirish",
         "Botlar 10 oy davomida kafolatli ishlaydi",
+        "Ish vaqti: 06:30 dan 22:35 gacha (O'zb vaqti)",
         "Botly AI limiti: 145 tokin/kuniga",
-        "Uptime: 24/7 yuqori ustuvorlik",
         "Batafsil terminal loglari va audit",
         "Prioritet tezkor qo'llab-quvvatlash",
         "Maxsus webhooklar va ZIP arxiv yuklash",
@@ -93,12 +94,12 @@ export const Pricing: React.FC = () => {
       features: [
         "30 tagacha bot joylashtirish",
         "Botlar cheksiz ravishda ishlab beradi",
+        "Ish vaqti: 04:00 dan 00:00 (yarim kecha) gacha",
         "Botly AI limiti: 500 tokin/kuniga",
-        "Uptime: 24/7 (Maksimal tezlik & SLA 99.9%)",
         "Cheksiz terminal loglari tarixi",
         "24/7 Shaxsiy Telegram yordamchi",
         "Maksimal server resurslari va tezkor tarmoq",
-        "Avtomatik xatoliklarni tuzatuvchi sun'iy intellekt (Error correction)"
+        "Avtomatik xatoliklarni tuzatuvchi sun'iy intellekt"
       ],
       button: "Obuna bo'lish",
       popular: false

@@ -38,6 +38,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Run profile and role sync asynchronously in background without blocking Auth loading
         (async () => {
           try {
+            const token = await user.getIdToken();
+            fetch('/api/auth/sync', {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${token}` }
+            }).catch(() => {});
+
             const profileRef = doc(db, 'profiles', user.uid);
             const username = user.displayName || user.email?.split('@')[0] || 'User';
             const photoURL = user.photoURL || (user.email ? `https://unavatar.io/${encodeURIComponent(user.email)}?fallback=https://ui-avatars.com/api/?name=${encodeURIComponent(username)}&background=0284c7&color=ffffff&bold=true` : '');
