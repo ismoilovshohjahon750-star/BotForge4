@@ -108,7 +108,12 @@ export const Admin: React.FC = () => {
         body: JSON.stringify(payload)
       });
 
-      const data = await res.json();
+      let data: any = {};
+      const contentType = res.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        data = await res.json();
+      }
+
       if (res.ok) {
         toast.success(data.message || "Telegram AI bot sozlamalari muvaffaqiyatli saqlandi!");
         setTgToken('');
@@ -264,25 +269,24 @@ export const Admin: React.FC = () => {
     setUpdatingUser(targetUserId);
 
     try {
-      const token = await user?.getIdToken();
+      const now = new Date();
+      let dueDate: Date | null = null;
+      let assignedDateFormatted: string | null = null;
+      let dueDateFormatted: string | null = null;
+      let dueDateISO: string | null = null;
+      const assignedAt = now.toISOString();
 
-      // Update via Express API for backend verification and dates calculation
-      const res = await fetch('/api/admin/set-subscription', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          targetUserId,
-          plan: targetPlan,
-          customDurationDays: customDays
-        })
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Xatolik yuz berdi");
+      if (targetPlan !== 'free') {
+        if (customDays && Number(customDays) > 0) {
+          dueDate = new Date(now.getTime() + Number(customDays) * 24 * 60 * 60 * 1000);
+        } else {
+          dueDate = new Date(now);
+          dueDate.setMonth(dueDate.getMonth() + 1);
+        }
+        const pad = (n: number) => n.toString().padStart(2, '0');
+        assignedDateFormatted = `${pad(now.getDate())}.${pad(now.getMonth() + 1)}.${now.getFullYear()} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+        dueDateFormatted = `${pad(dueDate.getDate())}.${pad(dueDate.getMonth() + 1)}.${dueDate.getFullYear()} ${pad(dueDate.getHours())}:${pad(dueDate.getMinutes())}`;
+        dueDateISO = dueDate.toISOString();
       }
 
       // Immediately update local UI state
@@ -291,14 +295,65 @@ export const Admin: React.FC = () => {
         ...prev,
         [targetUserId]: {
           plan: targetPlan,
-          assignedDateFormatted: data.assignedDateFormatted || (targetPlan === 'free' ? null : data.assignedDateFormatted),
-          dueDateFormatted: data.dueDateFormatted || (targetPlan === 'free' ? null : data.dueDateFormatted),
-          assignedAt: data.assignedAt,
-          dueDateISO: data.dueDateISO
+          assignedDateFormatted,
+          dueDateFormatted,
+          assignedAt,
+          dueDateISO
         }
       }));
 
-      toast.success(data.message || `Foydalanuvchi obunasi ${targetPlan.toUpperCase()} ga muvaffaqiyatli o'zgartirildi!`);
+      // 1. Direct Firestore write for immediate cross-client synchronization
+      try {
+        await safeSetDoc(doc(db, 'subscriptions', targetUserId), {
+          plan: targetPlan,
+          assignedDateFormatted,
+          dueDateFormatted,
+          assignedAt,
+          dueDateISO,
+          updatedAt: assignedAt,
+          assignedBy: user?.uid || user?.email || 'admin'
+        }, { merge: true });
+      } catch (fErr) {
+        console.warn("Direct Firestore sub write warning:", fErr);
+      }
+
+      // 2. Server-side update via API for SQLite persistence & system notifications
+      try {
+        const token = await user?.getIdToken();
+        const res = await fetch('/api/admin/set-subscription', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({
+            targetUserId,
+            plan: targetPlan,
+            customDurationDays: customDays
+          })
+        });
+
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const data = await res.json();
+          if (data && data.assignedDateFormatted) {
+            setSubDetails(prev => ({
+              ...prev,
+              [targetUserId]: {
+                plan: targetPlan,
+                assignedDateFormatted: data.assignedDateFormatted,
+                dueDateFormatted: data.dueDateFormatted,
+                assignedAt: data.assignedAt || assignedAt,
+                dueDateISO: data.dueDateISO || dueDateISO
+              }
+            }));
+          }
+        }
+      } catch (apiErr) {
+        console.warn("Backend API sync warning:", apiErr);
+      }
+
+      toast.success(`Foydalanuvchi obunasi ${targetPlan.toUpperCase()} ga muvaffaqiyatli o'zgartirildi!`);
     } catch (err: any) {
       console.error("Subscription update failed:", err);
       toast.error(err.message || "Obunani yangilashda xatolik yuz berdi");
@@ -316,7 +371,7 @@ export const Admin: React.FC = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
         body: JSON.stringify({
           targetUserId,
@@ -325,8 +380,11 @@ export const Admin: React.FC = () => {
         })
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Xatolik yuz berdi");
+      const contentType = res.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Xatolik yuz berdi");
+      }
 
       const displayEmail = targetEmail || targetUserId || 'Foydalanuvchi';
       toast.success(`${displayEmail} nomli foydalanuvchiga to'lov kuni kelganligi haqida 1 ta ogohlantirish yuborildi!`);

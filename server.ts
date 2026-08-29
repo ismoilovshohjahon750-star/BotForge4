@@ -900,26 +900,6 @@ function autoRepairPythonFiles(botDir: string, pyFiles: string[]) {
       if (modified) {
         fs.writeFileSync(fullPath, content);
       }
-
-      // Test compilation
-      try {
-        execSync(`${pyBin} -m py_compile "${fullPath}"`, { stdio: 'pipe' });
-      } catch (compileErr: any) {
-        // If compilation failed due to unterminated string literal, let's fix multiline literals
-        const errMsg = compileErr?.stderr?.toString() || compileErr?.stdout?.toString() || '';
-        if (errMsg.includes('unterminated string literal') || errMsg.includes('SyntaxError')) {
-          // Replace single double quotes enclosing multi-line texts with triple quotes or safe formatting
-          console.warn(`[Python Auto-Repair]: Syntax issue detected in ${file}. Repairing quotes...`);
-          // Clean invalid raw newlines inside single double-quoted strings
-          const repaired = content.replace(/(?<!\\)"([^"\n\\]*)\n([^"\n\\]*)"/g, '"""$1\n$2"""');
-          if (repaired !== content) {
-            fs.writeFileSync(fullPath, repaired);
-            try {
-              execSync(`${pyBin} -m py_compile "${fullPath}"`, { stdio: 'pipe' });
-            } catch (e2) {}
-          }
-        }
-      }
     } catch (e) {}
   }
 }
@@ -1955,16 +1935,17 @@ let currentKeyIndex = 0;
 
 const getGeminiKeys = () => {
     return [
+        process.env.GEMINI_API_KEY,
         process.env.GEMINI_API_KEY_1,
         process.env.GEMINI_API_KEY_2,
         process.env.GEMINI_API_KEY_3,
-        process.env.GEMINI_API_KEY_4,
-        process.env.GEMINI_API_KEY
+        process.env.GEMINI_API_KEY_4
     ].filter(k => k) as string[];
 };
 
 function rotateGeminiKey() {
     const keys = getGeminiKeys();
+    if (keys.length <= 1) return;
     currentKeyIndex = (currentKeyIndex + 1) % keys.length;
     aiClient = null; // Forces re-initialization
     console.log(`[GeminiKeyRotator]: Key rotated to index ${currentKeyIndex}`);
@@ -1973,10 +1954,10 @@ function rotateGeminiKey() {
 function getGeminiClient(): GoogleGenAI {
     const keys = getGeminiKeys();
     if (keys.length === 0) {
-        throw new Error("GEMINI_API_KEY... muhit o'zgaruvchilari o'rnatilmagan! Iltimos, Settings > Secrets panelida ularni o'rnating.");
+        throw new Error("GEMINI_API_KEY muhit o'zgaruvchisi topilmadi.");
     }
     
-    const key = keys[currentKeyIndex];
+    const key = keys[currentKeyIndex % keys.length];
     
     if (!aiClient) {
         aiClient = new GoogleGenAI({
@@ -1997,8 +1978,9 @@ async function callGeminiContentWithFallback(params: {
     preferredModel?: string;
 }): Promise<{ text?: string }> {
     const defaultModels = [
-        "gemini-2.5-flash",
-        "gemini-3.6-flash"
+        "gemini-3.7-flash",
+        "gemini-3.1-flash-lite",
+        "gemini-flash-latest"
     ];
 
     const modelsToTry = params.preferredModel 
@@ -2022,9 +2004,9 @@ async function callGeminiContentWithFallback(params: {
             } catch (err: any) {
                 lastError = err;
                 const rawErr = err?.message || String(err);
-                console.warn(`[Gemini Model Fallback]: ${modelName} (attempt ${attempt + 1}) failed: ${rawErr.slice(0, 120)}. Rotating key...`);
+                console.warn(`[Gemini Model Fallback]: ${modelName} (attempt ${attempt + 1}) failed: ${rawErr.slice(0, 120)}.`);
                 rotateGeminiKey();
-                await new Promise(r => setTimeout(r, 400));
+                await new Promise(r => setTimeout(r, 600));
             }
         }
     }
@@ -2306,7 +2288,7 @@ async function handleTelegramSupportMessage(botToken: string, adminId: string, m
         { role: 'user', parts: [{ text: CLOUDBOT_TELEGRAM_SUPPORT_PROMPT }] },
         ...conversationHistory
       ],
-      preferredModel: 'gemini-2.5-flash'
+      preferredModel: 'gemini-3.7-flash'
     });
     replyText = (geminiRes.text || "").trim();
   } catch (err: any) {
@@ -2330,6 +2312,8 @@ async function startTelegramSupportBotWorker() {
   telegramBotWorkerActive = true;
 
   let lastOffset = 0;
+  let lastTokenUsed = "";
+  let conflictRetryCount = 0;
 
   console.log("[Telegram AI Support Worker]: Fondagi jarayon ishga tushdi.");
 
@@ -2341,10 +2325,19 @@ async function startTelegramSupportBotWorker() {
       continue;
     }
 
+    // Yangi token kiritilganda yoki birinchi marta webhookni tozalash
+    if (config.botToken !== lastTokenUsed) {
+      lastTokenUsed = config.botToken;
+      try {
+        await fetch(`https://api.telegram.org/bot${config.botToken}/deleteWebhook?drop_pending_updates=false`, {
+          signal: AbortSignal.timeout(6000)
+        }).catch(() => {});
+      } catch (_) {}
+    }
+
     try {
       telegramBotRunning = true;
       telegramBotLastPollTime = Date.now();
-      telegramBotLastError = null;
 
       const pollUrl = `https://api.telegram.org/bot${config.botToken}/getUpdates`;
       const res = await fetch(pollUrl, {
@@ -2352,7 +2345,7 @@ async function startTelegramSupportBotWorker() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           offset: lastOffset,
-          timeout: 20,
+          timeout: 10,
           allowed_updates: [
             "message",
             "edited_message",
@@ -2361,16 +2354,34 @@ async function startTelegramSupportBotWorker() {
             "edited_business_message"
           ]
         }),
-        signal: AbortSignal.timeout(28000)
+        signal: AbortSignal.timeout(18000)
       });
 
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        telegramBotLastError = errJson.description || `HTTP ${res.status}`;
+        const description = errJson.description || `HTTP ${res.status}`;
+
+        // 409 Conflict - Agar avvalgi so'rov hali yopilmagan bo'lsa yoki parallel jarayon bo'lsa
+        if (res.status === 409 || description.toLowerCase().includes("conflict") || description.toLowerCase().includes("terminated by other getupdates")) {
+          conflictRetryCount++;
+          // Telegram serveri avvalgi ulanishni yopishiga ozgina vaqt beramiz
+          const waitTime = Math.min(conflictRetryCount * 3000, 10000);
+          if (conflictRetryCount === 1) {
+            console.log("[Telegram Support Bot]: Boshqa ulanish bilan sinxronlashmoqda, qayta ulanmoqda...");
+          }
+          await new Promise(r => setTimeout(r, waitTime));
+          continue;
+        }
+
+        telegramBotLastError = description;
         console.warn(`[Telegram Support Bot Poll Error]: ${telegramBotLastError}`);
-        await new Promise(r => setTimeout(r, 8000));
+        await new Promise(r => setTimeout(r, 6000));
         continue;
       }
+
+      // Muvaffaqiyatli javob keldi
+      conflictRetryCount = 0;
+      telegramBotLastError = null;
 
       const data = await res.json();
       if (data.ok && Array.isArray(data.result)) {
@@ -2406,7 +2417,7 @@ async function startTelegramSupportBotWorker() {
         telegramBotLastError = errMsg;
         console.warn("[Telegram Support Bot network loop warning]:", errMsg.slice(0, 100));
       }
-      await new Promise(r => setTimeout(r, 4000));
+      await new Promise(r => setTimeout(r, 3000));
     }
   }
 }
@@ -4003,7 +4014,7 @@ Javobni FAQAT ushbu formatdagi JSON ko'rinishida bering:
       if (fixedFiles.length === 0) {
         try {
           const geminiRes = await callGeminiContentWithFallback({
-            preferredModel: "gemini-2.5-flash",
+            preferredModel: "gemini-3.7-flash",
             contents: userPrompt,
             config: {
               systemInstruction,
@@ -5431,7 +5442,7 @@ Sizga qo'yilgan qat'iy talablar:
 5. **To'g'ri String Sintaksisi (Valid String Literals)**: Python va JavaScript kodlarida ko'p qatorli matnlar uchun har doim toza uchlik qo'shtirnoq (\"\"\"...\"\"\") yoki bitta qatorda to'g'ri formatlangan \\n ishlating. Hech qachon qator oxirida ochiq/yopilmagan qo'shtirnoq qoldirmang (unterminated string literal xatosining oldini oling).`;
 
           const response = await callGeminiContentWithFallback({
-            preferredModel: "gemini-2.5-flash",
+            preferredModel: "gemini-3.7-flash",
             contents: prompt,
             config: {
               systemInstruction,
@@ -5507,7 +5518,7 @@ Bizning platforma tuzilishi va imkoniyatlari quyidagicha:
           contents.push({ role: 'user', parts: [{ text: prompt }] });
 
           const response = await callGeminiContentWithFallback({
-            preferredModel: "gemini-2.5-flash",
+            preferredModel: "gemini-3.7-flash",
             contents: contents,
             config: {
               systemInstruction
