@@ -1,0 +1,4 @@
+.env
+*.session
+bot_store.db
+__pycache__/

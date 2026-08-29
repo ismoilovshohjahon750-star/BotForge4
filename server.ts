@@ -558,7 +558,11 @@ const pythonStdLib = new Set([
   'bisect', 'array', 'shlex', 'zlib', 'gzip', 'zipfile', 'tarfile', 'pickle', 'shelve',
   'dbm', 'reprlib', 'pprint', 'secrets', 'hmac', 'calendar', 'locale', 'gettext',
   'argparse', 'optparse', 'operator', 'codecs', 'errno', 'selectors', 'mimetypes',
-  'cgi', 'cgitb', 'wsgiref', 'ipaddress', 'turtle', 'tkinter', 'venv', 'zipimport'
+  'cgi', 'cgitb', 'wsgiref', 'ipaddress', 'turtle', 'tkinter', 'venv', 'zipimport',
+  'string', 'token', 'tokenize', 'site', 'cmd', 'getpass', 'pydoc', 'binascii', 'stat',
+  'fcntl', 'termios', 'pty', 'fnmatch', 'linecache', 'trace', 'tracemalloc', 'difflib',
+  'textwrap', 'unicodedata', 'stringprep', 'readline', 'rlcompleter', 'copyreg', 'marshal',
+  'filecmp', 'fileinput', 'getopt', 'contextvars', 'concurrent'
 ]);
 
 const commonLocalModuleNames = new Set([
@@ -873,6 +877,14 @@ function autoRepairPythonFiles(botDir: string, pyFiles: string[]) {
           // Check next line
           if (i + 1 < lines.length && lines[i + 1].trim() === '"\\') {
             lines[i + 1] = '';
+            modified = true;
+          }
+        }
+        // Fix backslash in f-string expression part (Python < 3.12 syntax error)
+        if ((line.includes('f"') || line.includes("f'")) && line.includes('{') && line.includes('}') && line.includes('\\')) {
+          const repairedLine = line.replace(/(\{.*?)(?:\\['"])(.*?\})/g, '$1ʻ$2');
+          if (repairedLine !== line) {
+            lines[i] = repairedLine;
             modified = true;
           }
         }
@@ -1217,23 +1229,35 @@ async function startBot(botId: string) {
 
     // 7. Unwrap single top-level directory if present
     try {
-        const rootItems = fs.readdirSync(botDir).filter(i => 
-            i !== 'bot.zip' && i !== '.pid' && i !== '__pycache__' && i !== '.git' && 
-            !i.endsWith('.db') && !i.endsWith('.sqlite') && !i.endsWith('.sqlite3') && i !== 'node_modules'
+        const envFilePath = path.join(botDir, '.env');
+        let existingEnvContent: string | null = null;
+        if (fs.existsSync(envFilePath)) {
+            try { existingEnvContent = fs.readFileSync(envFilePath, 'utf8'); } catch (e) {}
+        }
+
+        const subDirs = fs.readdirSync(botDir).filter(i => {
+            if (i === 'node_modules' || i === '__pycache__' || i === '.git') return false;
+            const full = path.join(botDir, i);
+            return fs.existsSync(full) && fs.statSync(full).isDirectory();
+        });
+        const rootCodeFiles = fs.readdirSync(botDir).filter(i => 
+            i.endsWith('.py') || i.endsWith('.js') || i.endsWith('.ts') || i.endsWith('.go') || i.endsWith('.rs') || i.endsWith('.rb') || i.endsWith('.php')
         );
-        if (rootItems.length === 1) {
-            const singleFolder = path.join(botDir, rootItems[0]);
-            if (fs.existsSync(singleFolder) && fs.statSync(singleFolder).isDirectory()) {
-                addBotLog(botId, 'deploy', `📂 Ichki qatlam papkasi (${rootItems[0]}) ildiz darajasiga ochilmoqda...`);
-                const innerItems = fs.readdirSync(singleFolder);
-                for (const innerItem of innerItems) {
-                    const src = path.join(singleFolder, innerItem);
-                    const dest = path.join(botDir, innerItem);
-                    if (fs.existsSync(dest)) fs.rmSync(dest, { recursive: true, force: true });
-                    fs.renameSync(src, dest);
-                }
-                fs.rmdirSync(singleFolder);
+        if (subDirs.length === 1 && rootCodeFiles.length === 0) {
+            const singleFolder = path.join(botDir, subDirs[0]);
+            addBotLog(botId, 'deploy', `📂 Ichki qatlam papkasi (${subDirs[0]}) ildiz darajasiga ochilmoqda...`);
+            const innerItems = fs.readdirSync(singleFolder);
+            for (const innerItem of innerItems) {
+                const src = path.join(singleFolder, innerItem);
+                const dest = path.join(botDir, innerItem);
+                if (fs.existsSync(dest)) fs.rmSync(dest, { recursive: true, force: true });
+                fs.renameSync(src, dest);
             }
+            fs.rmdirSync(singleFolder);
+        }
+
+        if (existingEnvContent && existingEnvContent.trim().length > 0) {
+            fs.writeFileSync(envFilePath, existingEnvContent, 'utf8');
         }
     } catch (e: any) {
         console.error("Folder flattening error:", e);
@@ -1720,11 +1744,16 @@ async function startBot(botId: string) {
             runningBots.delete(botId);
             startingBots.delete(botId);
 
+            const durationMs = Date.now() - procStartTime;
+
             if (userStoppedBots.has(botId)) {
                 addBotLog(botId, 'system', `🛑 Bot foydalanuvchi buyrug'i bilan to'xtatildi.`);
             } else {
                 if (code === 0) {
                     addBotLog(botId, 'system', `🛑 Bot jarayoni yakunlandi (kod: 0).`);
+                    if (durationMs < 60000) {
+                        addBotLog(botId, 'system', `💡 Maslahat: Bot qisqa vaqt ichida o'z-o'zidan to'xtadi (kod: 0). Bu koddagi try-except xatolikni ushlab olgani, BOT_TOKEN kiritilmagani yoki skript cheksiz siklsiz (polling siz) yakunlangani tufayli bo'lishi mumkin.`);
+                    }
                 } else {
                     addBotLog(botId, 'system', `⚠️ Bot jarayoni to'xtadi (kod: ${code}). Qayta ishga tushirish uchun "Qayta ishga tushirish" tugmasini bosing yoki xatoliklarni "Error correction" orqali tuzating.`);
                 }
@@ -1978,14 +2007,20 @@ async function callGeminiContentWithFallback(params: {
     preferredModel?: string;
 }): Promise<{ text?: string }> {
     const defaultModels = [
-        "gemini-3.7-flash",
-        "gemini-3.1-flash-lite",
-        "gemini-flash-latest"
+        "gemini-3.5-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-flash-lite-latest",
+        "gemini-3.6-flash",
+        "gemini-2.5-flash",
+        "gemini-flash-latest",
+        "gemini-3.7-flash"
     ];
 
-    const modelsToTry = params.preferredModel 
-        ? [params.preferredModel, ...defaultModels.filter(m => m !== params.preferredModel)]
-        : defaultModels;
+    const preferred = params.preferredModel || "gemini-3.5-flash";
+    const modelsToTry = [
+        preferred,
+        ...defaultModels.filter(m => m !== preferred)
+    ];
 
     let lastError: any = null;
 
@@ -2006,7 +2041,12 @@ async function callGeminiContentWithFallback(params: {
                 const rawErr = err?.message || String(err);
                 console.warn(`[Gemini Model Fallback]: ${modelName} (attempt ${attempt + 1}) failed: ${rawErr.slice(0, 120)}.`);
                 rotateGeminiKey();
-                await new Promise(r => setTimeout(r, 600));
+
+                if (rawErr.includes('429') || rawErr.includes('RESOURCE_EXHAUSTED') || rawErr.includes('quota') || rawErr.includes('404') || rawErr.includes('403') || rawErr.includes('503') || rawErr.includes('500') || rawErr.includes('demand') || rawErr.includes('UNAVAILABLE') || rawErr.includes('overloaded')) {
+                    break;
+                }
+
+                await new Promise(r => setTimeout(r, 400));
             }
         }
     }
@@ -2288,7 +2328,7 @@ async function handleTelegramSupportMessage(botToken: string, adminId: string, m
         { role: 'user', parts: [{ text: CLOUDBOT_TELEGRAM_SUPPORT_PROMPT }] },
         ...conversationHistory
       ],
-      preferredModel: 'gemini-3.7-flash'
+      preferredModel: 'gemini-3.5-flash'
     });
     replyText = (geminiRes.text || "").trim();
   } catch (err: any) {
@@ -2361,6 +2401,14 @@ async function startTelegramSupportBotWorker() {
         const errJson = await res.json().catch(() => ({}));
         const description = errJson.description || `HTTP ${res.status}`;
 
+        // 401 Unauthorized - Token xato yoki bekor qilingan bo'lsa
+        if (res.status === 401 || description.toLowerCase().includes("unauthorized")) {
+          telegramBotLastError = "Telegram Token xato yoki bekor qilingan (401 Unauthorized)";
+          console.warn(`[Telegram Support Bot]: Token xato yoki bekor qilingan (401). 15 soniyadan so'ng qayta uriniladi...`);
+          await new Promise(r => setTimeout(r, 15000));
+          continue;
+        }
+
         // 409 Conflict - Agar avvalgi so'rov hali yopilmagan bo'lsa yoki parallel jarayon bo'lsa
         if (res.status === 409 || description.toLowerCase().includes("conflict") || description.toLowerCase().includes("terminated by other getupdates")) {
           conflictRetryCount++;
@@ -2413,11 +2461,22 @@ async function startTelegramSupportBotWorker() {
       }
     } catch (pollErr: any) {
       const errMsg = pollErr?.message || String(pollErr);
-      if (!errMsg.includes("aborted") && !errMsg.includes("Timeout")) {
+      const isTransientNetworkError =
+        pollErr?.name === 'AbortError' ||
+        errMsg.includes("aborted") ||
+        errMsg.includes("Timeout") ||
+        errMsg.includes("fetch failed") ||
+        errMsg.includes("ECONNRESET") ||
+        errMsg.includes("ETIMEDOUT") ||
+        errMsg.includes("ENOTFOUND") ||
+        errMsg.includes("socket hang up");
+
+      if (!isTransientNetworkError) {
         telegramBotLastError = errMsg;
         console.warn("[Telegram Support Bot network loop warning]:", errMsg.slice(0, 100));
       }
-      await new Promise(r => setTimeout(r, 3000));
+      // Shovqinsiz qayta ulanish
+      await new Promise(r => setTimeout(r, 2000));
     }
   }
 }
@@ -4014,7 +4073,7 @@ Javobni FAQAT ushbu formatdagi JSON ko'rinishida bering:
       if (fixedFiles.length === 0) {
         try {
           const geminiRes = await callGeminiContentWithFallback({
-            preferredModel: "gemini-3.7-flash",
+            preferredModel: "gemini-3.5-flash",
             contents: userPrompt,
             config: {
               systemInstruction,
@@ -5442,7 +5501,7 @@ Sizga qo'yilgan qat'iy talablar:
 5. **To'g'ri String Sintaksisi (Valid String Literals)**: Python va JavaScript kodlarida ko'p qatorli matnlar uchun har doim toza uchlik qo'shtirnoq (\"\"\"...\"\"\") yoki bitta qatorda to'g'ri formatlangan \\n ishlating. Hech qachon qator oxirida ochiq/yopilmagan qo'shtirnoq qoldirmang (unterminated string literal xatosining oldini oling).`;
 
           const response = await callGeminiContentWithFallback({
-            preferredModel: "gemini-3.7-flash",
+            preferredModel: "gemini-3.5-flash",
             contents: prompt,
             config: {
               systemInstruction,
@@ -5518,7 +5577,7 @@ Bizning platforma tuzilishi va imkoniyatlari quyidagicha:
           contents.push({ role: 'user', parts: [{ text: prompt }] });
 
           const response = await callGeminiContentWithFallback({
-            preferredModel: "gemini-3.7-flash",
+            preferredModel: "gemini-3.5-flash",
             contents: contents,
             config: {
               systemInstruction
@@ -5644,11 +5703,12 @@ async function restoreAndSuperviseBots() {
         for (const docSnap of allFsDocs.docs) {
           const botId = docSnap.id;
           const data = docSnap.data();
-          const existing = db.prepare('SELECT id, code FROM bots WHERE id = ?').get(botId) as any;
+          const existing = db.prepare('SELECT id, code, status FROM bots WHERE id = ?').get(botId) as any;
           let codeBuffer: Buffer | null = existing?.code || null;
           if (!codeBuffer && data.codeZipBase64) {
             codeBuffer = Buffer.from(data.codeZipBase64, 'base64');
           }
+          const botStatus = existing?.status || data.status || 'stopped';
           db.prepare('INSERT OR REPLACE INTO bots (id, owner_id, name, language, entryPoint, code, status) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
             botId,
             data.userId || '',
@@ -5656,7 +5716,7 @@ async function restoreAndSuperviseBots() {
             data.language || 'python',
             data.entryPoint || 'bot.py',
             codeBuffer,
-            data.status || 'stopped'
+            botStatus
           );
         }
         console.log(`🤖 [Bot Supervisor]: Firestore'dan ${allFsDocs.size} ta bot SQLite ga sinxronlandi.`);
