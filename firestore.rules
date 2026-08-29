@@ -1,0 +1,77 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Catch-all deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        (request.auth.token.email != null && request.auth.token.email == 'ismoilovshohjahon750@gmail.com') ||
+        (exists(/databases/$(database)/documents/user_roles/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/user_roles/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    // --- Collections ---
+
+    // Profiles
+    match /profiles/{userId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // User Roles
+    match /user_roles/{userId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Bots
+    match /bots/{botId} {
+      allow read, write: if isSignedIn();
+
+      // Bot Logs - Subcollection
+      match /logs/{logId} {
+        allow read, write: if isSignedIn();
+      }
+    }
+
+    // Subscriptions
+    match /subscriptions/{userId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Contact Messages
+    match /contact_messages/{msgId} {
+      allow read, write: if true;
+    }
+
+    // Notifications
+    match /notifications/{notifId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Chat History
+    match /chat_history/{chatId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Active Calls (Voice Calls & Signals)
+    match /active_calls/{callId} {
+      allow read, write: if isSignedIn();
+    }
+    match /active_calls/{callId}/{allPaths=**} {
+      allow read, write: if isSignedIn();
+    }
+  }
+}
+

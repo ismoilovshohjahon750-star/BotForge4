@@ -1,0 +1,152 @@
+{
+  "entities": {
+    "Profile": {
+      "title": "Profile",
+      "description": "Foydalanuvchi profili",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "createdAt"]
+    },
+    "UserRole": {
+      "title": "User Role",
+      "description": "Foydalanuvchi roli (admin/user)",
+      "type": "object",
+      "properties": {
+        "role": { "type": "string", "enum": ["admin", "user"] }
+      },
+      "required": ["role"]
+    },
+    "Bot": {
+      "title": "Bot",
+      "description": "Yuklangan bot haqida ma'lumot",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "language": { "type": "string" },
+        "status": { "type": "string", "enum": ["stopped", "running", "error"] },
+        "entryPoint": { "type": "string" },
+        "uptimeStart": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "name", "language", "status", "createdAt"]
+    },
+    "BotLog": {
+      "title": "Bot Log",
+      "description": "Bot ishga tushishi davridagi loglar",
+      "type": "object",
+      "properties": {
+        "botId": { "type": "string" },
+        "message": { "type": "string" },
+        "level": { "type": "string", "enum": ["info", "warn", "error"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["botId", "message", "level", "createdAt"]
+    },
+    "Subscription": {
+      "title": "Subscription",
+      "description": "Foydalanuvchi obunasi",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "plan": { "type": "string", "enum": ["free", "pro", "vip"] },
+        "expiresAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "plan"]
+    },
+    "ContactMessage": {
+      "title": "ContactMessage",
+      "description": "Foydalanuvchi xabarlari",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "message": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "userEmail", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Foydalanuvchi bildirishnomasi",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "message", "read", "createdAt"]
+    },
+    "ChatHistory": {
+      "title": "ChatHistory",
+      "description": "Botly AI suhbati",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "prompt": { "type": "string" },
+        "response": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "createdAt"]
+    },
+    "ActiveCall": {
+      "title": "ActiveCall",
+      "description": "Ovozli qo'ng'iroqlar holati va signallari",
+      "type": "object",
+      "properties": {
+        "chatId": { "type": "string" },
+        "callerId": { "type": "string" },
+        "callerName": { "type": "string" },
+        "callerEmail": { "type": "string" },
+        "receiverId": { "type": "string" },
+        "receiverEmail": { "type": "string" },
+        "status": { "type": "string", "enum": ["ringing", "connected", "rejected", "ended", "missed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["callerId", "receiverEmail", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/profiles/{userId}": {
+      "schema": "Profile",
+      "description": "Foydalanuvchilarning asosiy profillari"
+    },
+    "/user_roles/{userId}": {
+      "schema": "UserRole",
+      "description": "Foydalanuvchilarga berilgan rollar"
+    },
+    "/bots/{botId}": {
+      "schema": "Bot",
+      "description": "Barcha yuklangan botlar"
+    },
+    "/bots/{botId}/logs/{logId}": {
+      "schema": "BotLog",
+      "description": "Botlar uchun batafsil loglar"
+    },
+    "/subscriptions/{userId}": {
+      "schema": "Subscription",
+      "description": "Foydalanuvchi obuna ma'lumotlari"
+    },
+    "/contact_messages/{msgId}": {
+      "schema": "ContactMessage",
+      "description": "Foydalanuvchi va admin xabarlari"
+    },
+    "/notifications/{notifId}": {
+      "schema": "Notification",
+      "description": "Tizim va foydalanuvchi bildirishnomalari"
+    },
+    "/chat_history/{chatId}": {
+      "schema": "ChatHistory",
+      "description": "Botly AI suhbatlari tarixi"
+    },
+    "/active_calls/{callId}": {
+      "schema": "ActiveCall",
+      "description": "Real-vaqtda ovozli qo'ng'iroqlar ma'lumotlari"
+    }
+  }
+}

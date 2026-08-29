@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: cloudbot-app
+    env: node
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false

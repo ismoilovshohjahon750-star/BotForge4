@@ -1,0 +1,4 @@
+aiosqlite
+uuid
+aiogram
+openai
