@@ -1302,7 +1302,8 @@ async function startBot(botId: string) {
 
     if (hasRequirementsTxt || pyFiles.length > 0 || activeLanguage === 'python') {
         activeLanguage = 'python';
-        if (allDiskFiles.includes('main.py')) activeEntryPoint = 'main.py';
+        if (allDiskFiles.includes('start_all.py')) activeEntryPoint = 'start_all.py';
+        else if (allDiskFiles.includes('main.py')) activeEntryPoint = 'main.py';
         else if (allDiskFiles.includes('bot.py')) activeEntryPoint = 'bot.py';
         else if (allDiskFiles.includes('app.py')) activeEntryPoint = 'app.py';
         else if (allDiskFiles.includes('run.py')) activeEntryPoint = 'run.py';
@@ -1390,6 +1391,20 @@ async function startBot(botId: string) {
     childEnv['CGO_ENABLED'] = '0';
     if (!childEnv['GOPATH']) {
         childEnv['GOPATH'] = path.join(process.cwd(), '.go-path');
+    }
+
+    if (!fs.existsSync(localEnvPath)) {
+        const envExamples = ['.env.example', '.env.sample', '.env.template', 'config.env.example', 'example.env', 'config.env'];
+        for (const ex of envExamples) {
+            const exPath = path.join(botDir, ex);
+            if (fs.existsSync(exPath)) {
+                try {
+                    fs.copyFileSync(exPath, localEnvPath);
+                    addBotLog(botId, 'system', `🔑 Mahalliy .env fayli (${ex} dan) avtomatik yaratildi.`);
+                    break;
+                } catch (e) {}
+            }
+        }
     }
 
     if (fs.existsSync(localEnvPath)) {
@@ -1748,6 +1763,8 @@ async function startBot(botId: string) {
 
             if (userStoppedBots.has(botId)) {
                 addBotLog(botId, 'system', `🛑 Bot foydalanuvchi buyrug'i bilan to'xtatildi.`);
+                db.prepare('UPDATE bots SET status = ? WHERE id = ?').run('stopped', botId);
+                updateFirestoreBotMetadata(botId, { status: 'stopped' });
             } else {
                 if (code === 0) {
                     addBotLog(botId, 'system', `🛑 Bot jarayoni yakunlandi (kod: 0).`);
@@ -1755,12 +1772,33 @@ async function startBot(botId: string) {
                         addBotLog(botId, 'system', `💡 Maslahat: Bot qisqa vaqt ichida o'z-o'zidan to'xtadi (kod: 0). Bu koddagi try-except xatolikni ushlab olgani, BOT_TOKEN kiritilmagani yoki skript cheksiz siklsiz (polling siz) yakunlangani tufayli bo'lishi mumkin.`);
                     }
                 } else {
-                    addBotLog(botId, 'system', `⚠️ Bot jarayoni to'xtadi (kod: ${code}). Qayta ishga tushirish uchun "Qayta ishga tushirish" tugmasini bosing yoki xatoliklarni "Error correction" orqali tuzating.`);
+                    addBotLog(botId, 'system', `⚠️ Bot jarayoni to'xtadi (kod: ${code}).`);
+                }
+
+                // Avtomatik tiklash (Auto-restart Watchdog)
+                const now = Date.now();
+                const tracker = botCrashTracker.get(botId) || { count: 0, lastCrash: 0 };
+                if (now - tracker.lastCrash > 60000) {
+                    tracker.count = 0;
+                }
+                tracker.count += 1;
+                tracker.lastCrash = now;
+                botCrashTracker.set(botId, tracker);
+
+                if (tracker.count <= 10) {
+                    const delay = Math.min(2000 * Math.pow(1.5, tracker.count - 1), 10000);
+                    addBotLog(botId, 'system', `🔄 [Avtomatik Tiklash]: Bot doimiy yoniq turishi uchun ${Math.round(delay / 1000)} soniyadan keyin qayta ishga tushiriladi (Urinish: ${tracker.count}/10)...`);
+                    setTimeout(() => {
+                        if (!userStoppedBots.has(botId) && !runningBots.has(botId) && !startingBots.has(botId)) {
+                            startBot(botId).catch(e => console.error(`Auto restart error for ${botId}:`, e));
+                        }
+                    }, delay);
+                } else {
+                    addBotLog(botId, 'system', `🚨 [Avtomatik Tiklash To'xtatildi]: Bot ketma-ket 10 marta to'xtadi. Iltimos, xatoliklarni tekshirib, "Qayta ishga tushirish" tugmasini bosing.`);
+                    db.prepare('UPDATE bots SET status = ? WHERE id = ?').run('stopped', botId);
+                    updateFirestoreBotMetadata(botId, { status: 'stopped' });
                 }
             }
-
-            db.prepare('UPDATE bots SET status = ? WHERE id = ?').run('stopped', botId);
-            updateFirestoreBotMetadata(botId, { status: 'stopped' });
         });
 
         child.on('error', (err: any) => {
@@ -2007,16 +2045,16 @@ async function callGeminiContentWithFallback(params: {
     preferredModel?: string;
 }): Promise<{ text?: string }> {
     const defaultModels = [
+        "gemini-3.7-flash",
+        "gemini-flash-latest",
         "gemini-3.5-flash",
         "gemini-3.5-flash-lite",
-        "gemini-flash-lite-latest",
         "gemini-3.6-flash",
-        "gemini-2.5-flash",
-        "gemini-flash-latest",
-        "gemini-3.7-flash"
+        "gemini-flash-lite-latest",
+        "gemini-2.5-flash"
     ];
 
-    const preferred = params.preferredModel || "gemini-3.5-flash";
+    const preferred = params.preferredModel || "gemini-3.7-flash";
     const modelsToTry = [
         preferred,
         ...defaultModels.filter(m => m !== preferred)
@@ -2025,7 +2063,10 @@ async function callGeminiContentWithFallback(params: {
     let lastError: any = null;
 
     for (const modelName of modelsToTry) {
-        for (let attempt = 0; attempt < 2; attempt++) {
+        const keys = getGeminiKeys();
+        const maxKeyAttempts = Math.max(keys.length, 1);
+        
+        for (let kAttempt = 0; kAttempt < maxKeyAttempts; kAttempt++) {
             try {
                 const client = getGeminiClient();
                 const response = await client.models.generateContent({
@@ -2039,14 +2080,22 @@ async function callGeminiContentWithFallback(params: {
             } catch (err: any) {
                 lastError = err;
                 const rawErr = err?.message || String(err);
-                console.warn(`[Gemini Model Fallback]: ${modelName} (attempt ${attempt + 1}) failed: ${rawErr.slice(0, 120)}.`);
+                
+                // Key almashinuvi
                 rotateGeminiKey();
 
-                if (rawErr.includes('429') || rawErr.includes('RESOURCE_EXHAUSTED') || rawErr.includes('quota') || rawErr.includes('404') || rawErr.includes('403') || rawErr.includes('503') || rawErr.includes('500') || rawErr.includes('demand') || rawErr.includes('UNAVAILABLE') || rawErr.includes('overloaded')) {
+                // Agar model 404 (mavjud emas) bo'lsa, keyingi modelga o'tish
+                if (rawErr.includes('404') || rawErr.includes('not found') || rawErr.includes('no longer available')) {
                     break;
                 }
 
-                await new Promise(r => setTimeout(r, 400));
+                // 429 quota xatolik bo'lsa, keyingi kalitni sinab ko'rish
+                if (rawErr.includes('429') || rawErr.includes('RESOURCE_EXHAUSTED') || rawErr.includes('quota')) {
+                    await new Promise(r => setTimeout(r, 200));
+                    continue;
+                }
+
+                await new Promise(r => setTimeout(r, 300));
             }
         }
     }
@@ -2149,41 +2198,177 @@ async function sendTelegramChatAction(botToken: string, chatId: number | string,
   } catch (_) {}
 }
 
+async function sendTelegramVoice(botToken: string, chatId: number | string, text: string, businessConnectionId?: string) {
+  if (!botToken || !chatId || !text) return;
+  try {
+    // HTML, Markdown va emoji belgilardan tozalash
+    let cleanText = text
+      .replace(/<[^>]*>/g, '')
+      .replace(/[*_`~#]/g, '')
+      .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!cleanText) return;
+
+    // Juda uzun bo'lsa ovozli xabarni 450 belgida qisqartirish
+    if (cleanText.length > 450) {
+      cleanText = cleanText.substring(0, 450) + "...";
+    }
+
+    const { execFile, execSync } = await import('child_process');
+    const fs = await import('fs');
+    const path = await import('path');
+    const os = await import('os');
+
+    // Tizimda edge-tts buyrug'i mavjudligini xavfsiz tekshirish
+    let hasEdgeTts = false;
+    try {
+      execSync('which edge-tts', { stdio: 'ignore' });
+      hasEdgeTts = true;
+    } catch (_) {
+      hasEdgeTts = false;
+    }
+
+    let audioBuffer: Buffer | null = null;
+
+    if (hasEdgeTts) {
+      const randId = Math.random().toString(36).slice(2);
+      const tmpTxt = path.join(os.tmpdir(), `tts_${Date.now()}_${randId}.txt`);
+      const tmpMp3 = path.join(os.tmpdir(), `tts_${Date.now()}_${randId}.mp3`);
+
+      try {
+        fs.writeFileSync(tmpTxt, cleanText, 'utf-8');
+        await new Promise<void>((resolve, reject) => {
+          execFile('edge-tts', ['--file', tmpTxt, '--voice', 'uz-UZ-MadinaNeural', '--write-media', tmpMp3], (err) => {
+            if (err) reject(err);
+            else resolve();
+          });
+        });
+
+        if (fs.existsSync(tmpMp3)) {
+          audioBuffer = fs.readFileSync(tmpMp3);
+        }
+      } catch (_) {
+        // Agar edge-tts ishlamasa xatosiz davom etish
+      } finally {
+        try { if (fs.existsSync(tmpTxt)) fs.unlinkSync(tmpTxt); } catch (_) {}
+        try { if (fs.existsSync(tmpMp3)) fs.unlinkSync(tmpMp3); } catch (_) {}
+      }
+    }
+
+    if (!audioBuffer || audioBuffer.length < 500) return;
+
+    // Form-data tayyorlash va sendVoice so'rovini yuborish
+    const formData = new FormData();
+    formData.append('chat_id', String(chatId));
+    formData.append('voice', new Blob([audioBuffer], { type: 'audio/mpeg' }), 'voice.mp3');
+    if (businessConnectionId) {
+      formData.append('business_connection_id', businessConnectionId);
+    }
+
+    await fetch(`https://api.telegram.org/bot${botToken}/sendVoice`, {
+      method: 'POST',
+      body: formData
+    });
+  } catch (_) {
+    // Ovozsiz ishlash rejimida xatoliklarni e'tiborsiz qoldirish
+  }
+}
+
+function formatTelegramTextToHtml(text: string): string {
+  if (!text) return '';
+
+  // 1. Vaqtinchalik kod bloklarini saqlash
+  const codeBlocks: string[] = [];
+  let processed = text.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_, lang, code) => {
+    const escapedCode = code
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    const placeholder = `___CODEBLOCK_${codeBlocks.length}___`;
+    if (lang) {
+      codeBlocks.push(`<pre><code class="language-${lang.trim()}">${escapedCode}</code></pre>`);
+    } else {
+      codeBlocks.push(`<pre>${escapedCode}</pre>`);
+    }
+    return placeholder;
+  });
+
+  // 2. Inline kodlarni saqlash
+  const inlineCodes: string[] = [];
+  processed = processed.replace(/`([^`\n]+)`/g, (_, code) => {
+    const escapedCode = code
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    const placeholder = `___INLINECODE_${inlineCodes.length}___`;
+    inlineCodes.push(`<code>${escapedCode}</code>`);
+    return placeholder;
+  });
+
+  // 3. Matndagi HTML maxsus belgilarini xavfsiz qilish (agar allaqachon teg bo'lmasa)
+  // Telegram ruxsat bergan teglardan tashqari barcha < va > larni almashtirish
+  processed = processed
+    .replace(/&(?!amp;|lt;|gt;|quot;|#\d+;)/g, '&amp;')
+    .replace(/<(?!\/?(b|strong|i|em|u|ins|s|strike|del|span|tg-spoiler|a|code|pre|blockquote)\b[^>]*>)/gi, '&lt;');
+
+  // 4. Markdown formatlashni HTML ga o'tkazish
+  // **bold** yoki __bold__
+  processed = processed.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+  processed = processed.replace(/__(.*?)__/g, '<b>$1</b>');
+
+  // *italic* (agar so'z ichida bo'lmasa)
+  processed = processed.replace(/(?<!\w)\*(?!\s)(.*?)(?<!\s)\*(?!\w)/g, '<i>$1</i>');
+  processed = processed.replace(/(?<!\w)_(?!\s)(.*?)(?<!\s)_(?!\w)/g, '<i>$1</i>');
+
+  // 5. Saqlangan kod bloklarini qaytarish
+  codeBlocks.forEach((block, idx) => {
+    processed = processed.replace(`___CODEBLOCK_${idx}___`, block);
+  });
+  inlineCodes.forEach((code, idx) => {
+    processed = processed.replace(`___INLINECODE_${idx}___`, code);
+  });
+
+  return processed.trim();
+}
+
 const CLOUDBOT_TELEGRAM_SUPPORT_PROMPT = `
-Siz CloudBot.uz platformasining 24/7 rejimida ishlaydigan rasmiy virtual xodimi va AI maslahatchisisiz (Botly AI).
-Sizning vazifangiz — Telegram orqali murojaat qilgan mijozlar va foydalanuvchilar bilan muloyim, professional, samimiy va ishonchli muloqot qilish, CloudBot.uz xizmatlarini tushuntirish va bot yuklash bo'yicha yordam berish.
+Siz — Telegramda samimiy, xushmuomala, bilimdon va tabiiy insondek gaplashadigan mutaxassissiz.
 
-ASOSIY BILIMLAR VA QOIDALAR:
-1. CloudBot.uz platformasi haqida:
-   - Bu O'zbekistondagi eng tezkor, qulay va arzon Telegram/Discord botlar xosting platformasi.
-   - Python (aiogram, telebot, pyTelegramBotAPI) va Node.js (telegraf, grammy) botlarini to'liq qo'llab-quvvatlaydi.
-   - Botlar 24/7 qotmasdan, uzluksiz va yuqori tezlikda ishlaydi.
-   - Avtomatik kutubxona o'rnatish (pip/requirements.txt, npm/package.json) va xatolarni avtomatik tuzatuvchi Botly AI mavjud.
+ENG MUHIM MULOQOT QOIDALARI (QAT'IY):
+1. O'ZINI TANISHTIRISH VA SALOMLASHISH QOIDASI:
+   - Agar foydalanuvchi oddiygina salomlashsa ("Salom", "Assalomu alaykum", "Qalesiz", "Ertalabki salom", "Privet"):
+     Oddiy inson qanday salomlashsa shunday qisqa, iliq va samimiy javob bering!
+     Misollar: 
+     • "Va alaykum assalom! Yaxshimisiz, ishlaringiz yaxshimi? Qanday yordam bera olaman? 😊"
+     • "Salom! Rahmat, o'zingiz yaxshimisiz? Qanday savol yoki yordam kerak edi?"
+   - QAT'IYAN TAQIQLANADI:
+     ❌ "Men Botly AIman, CloudBot.uz yordamchisiman" deb o'zingizdan o'zingiz aytish.
+     ❌ "Men insondek gaplashaman" yoki "Men sun'iy intellektman" deb aytish.
+     ❌ So'ralmagan paytda birdaniga xizmatlar yoki tariflar ro'yxatini to'kib tashlash.
 
-2. Tariflar:
-   - Bepul (Free): 2 tagacha bot, 2 oy muddat, ish vaqti 07:25 dan 21:00 gacha (O'zb vaqti), Botly AI 45 token/kun.
-   - Pro ($20/oy): 10 tagacha bot, 10 oy muddat, ish vaqti 06:30 dan 22:35 gacha (O'zb vaqti), Botly AI 145 token/kun, prioritet qo'llab-quvvatlash.
-   - VIP ($35/oy): 30 tagacha bot, cheksiz umrbod muddat, ish vaqti 04:00 dan 00:00 (yarim kecha) gacha, Botly AI 500 token/kun, maksimal server tezligi.
+2. BOTLY AI VA CLOUDBOT.UZ HAQIDA FAQAT SO'RALSAGINA AYTISH:
+   - "Siz kimsiz?", "Bu qanday bot?", "Botly AI nima?" deb SO'RALSAGINA:
+     "Men CloudBot.uz platformasining aqlli yordamchisiman (Botly AI). Botlarni yuklash, hosting, dasturlash va texnik savollaringizda yordam beraman." deb javob bering.
+   - "CloudBot.uz nima?", "Bot yuklash qanday bo'ladi?", "Tariflar qanaqa?" deb SO'RALSAGINA:
+     • CloudBot.uz — Telegram va Discord botlar uchun O'zbekistondagi eng tezkor va qulay hosting platformasi.
+     • Python (aiogram, telebot, telethon) va Node.js (telegraf, grammy, discord.js) botlarini qo'llab-quvvatlaydi.
+     • Tariflar: Bepul (2 ta bot, 2 oy, 07:25–21:00), Pro ($20/oy, 10 ta bot, 10 oy, 06:30–22:35), VIP ($35/oy, 30 ta bot, cheksiz muddat, 04:00–00:00).
+     • Bot yuklash: Saytga kirish -> "Bot yuklash" (ZIP yoki GitHub) -> .env da BOT_TOKEN -> "Ishga tushirish".
 
-3. Platformaga bot yuklash tartibi:
-   - 1. CloudBot.uz saytiga kirish va ro'yxatdan o'tish (Google yoki Email orqali).
-   - 2. "Bot Yuklash" (Upload) tugmasini bosish.
-   - 3. Bot kodini ZIP arxiv qilib yuklash (ichida bot.py yoki index.js va requirements.txt bo'lishi kerak) yoki GitHub havola orqali import qilish.
-   - 4. "Ishga tushirish" tugmasini bosish — bot avtomatik ishga tushadi.
+3. YARATUVCHILAR HAQIDA (FAQAT SO'RALGANDA):
+   - "Seni kim yaratgan?": "Meni CloudBot.uz jamoasi yaratgan."
+   - "CloudBot.uz asoschisi / yaratuvchisi kim?": "CloudBot.uz asoschisi — Ismoilov Shohjahon."
+   - Tug'ilgan sana FAQAT TO'G'RIDAN-TO'G'RI SO'RALGANDA: "Ismoilov Shohjahon 2010-yil 24-dekabrda tug'ilgan." (So'ralmagan bo'lsa hech qachon aytmang).
 
-4. Nega aynan CloudBot.uz ni tanlash kerak:
-   - Qimmat va murakkab VPS serverlarni sozlashga hojat yo'q (terminal buyruqlari kerak emas).
-   - O'zbekiston ichida ping juda past va ulanish tezligi yuqori.
-   - Bot xato qilsa, sun'iy intellekt xatoni topib, avtomatik tuzatish taklif qiladi.
-   - Juda arzon narxlar va qulay to'lov usullari.
+4. TEXNIK VA DASTURLASH YORDAMI:
+   - Foydalanuvchi Python/Node.js kodlari, kutubxonalar yoki xatolar haqida so'rasa, tajribali dasturchi kabi aniq, to'g'ri kodlar va tushuntirishlar bering.
 
-5. XAVFSIZLIK VA MAXFIYLIK (QAT'IY CHEKLOV):
-   - Hech qachon server parollari, API kalitlar, ma'lumotlar bazasi tuzilishi, shaxsiy tokenlar, .env fayllari yoki platformaning ichki server kodlarini oshkor qilmang.
-   - Agar foydalanuvchi tizim sirlarini so'rasa: "Kechirasiz, xavfsizlik qoidalariga binoan ichki texnik ma'lumotlar sir saqlanadi." deb javob bering.
+5. XAVFSIZLIK:
+   - Server parollari, API kalitlar, baza sirlari haqida ma'lumot berilmaydi.
 
-6. Javob berish uslubi:
-   - Faqat foydalanuvchi so'ragan masalaga lo'nda, aniq, muloyim va tushunarli qilib javob bering.
-   - O'zbek tilida sof, adabiy va professional ohangda gaplashing. Ortiqcha keraksiz emojilardan saqlaning.
+Har doim tabiiy, jonli, o'zbek tilida (lotin alifbosida), ortiqcha qoliplarsiz muloqot qiling!
 `;
 
 async function handleTelegramSupportMessage(botToken: string, adminId: string, message: any, businessConnectionId?: string) {
@@ -2212,7 +2397,7 @@ async function handleTelegramSupportMessage(botToken: string, adminId: string, m
 
   // 1. /start buyrug'i
   if (text === '/start' || text.startsWith('/start ')) {
-    const welcomeMsg = `Assalomu alaykum, <b>${firstName || 'foydalanuvchi'}</b>!\n\nMen <b>CloudBot.uz</b> platformasining 24/7 rasmiy virtual AI yordamchisiman (Botly AI).\n\nSizga qanday yordam bera olaman?\n• Botni platformaga qanday yuklash (ZIP yoki GitHub orqali)\n• Obuna tariflari (Free, Pro, VIP) va imkoniyatlar\n• Nega aynan CloudBot.uz ni tanlash kerakligi\n• Dasturlash tillari (Python, Node.js) va texnik talablar\n\nSavolingizni bemalol yozib qoldirishingiz mumkin!`;
+    const welcomeMsg = `Assalomu alaykum, <b>${firstName || 'do\'stim'}</b>! 😊\n\nQandaysiz, yaxshimisiz? Botlar, dasturlash yoki xosting bo'yicha qanday savol yoki yordam kerak bo'lsa bemalol yozavering!`;
     
     try {
       db.prepare("INSERT INTO telegram_support_logs (chat_id, username, role, text) VALUES (?, ?, 'user', ?)").run(chatId, username, text);
@@ -2272,25 +2457,25 @@ async function handleTelegramSupportMessage(botToken: string, adminId: string, m
       const uptimeMins = Math.floor((process.uptime() % 3600) / 60);
 
       const adminReport = `
-<b>CloudBot.uz Boshqaruv & Statistika Hisoboti</b>
+<b>📊 CloudBot.uz Boshqaruv & Statistika Hisoboti</b>
 
-<b>Platforma foydalanuvchilari:</b>
+<b>👥 Platforma foydalanuvchilari:</b>
 • Jami foydalanuvchilar: <b>${totalUsers}</b> ta
 • PRO obunachilar ($20/oy): <b>${proUsers}</b> ta
 • VIP obunachilar ($35/oy): <b>${vipUsers}</b> ta
 • Bepul tarifdagilar: <b>${freeUsers}</b> ta
 
-<b>Botlar holati:</b>
+<b>🤖 Botlar holati:</b>
 • Jami yuklangan botlar: <b>${totalBots}</b> ta
 • Hozirda faol ishlayotganlar: <b>${runningBotsCount}</b> ta
 
-<b>24/7 Telegram AI Yordamchi:</b>
+<b>💬 24/7 Telegram AI Yordamchi:</b>
 • Murojaat qilgan mijozlar: <b>${totalAiUsers}</b> ta
 • Jami savol-javoblar: <b>${totalAiQueries}</b> ta
 • Bugungi so'rovlar: <b>${todayAiQueries}</b> ta
 
-<b>Tizim vaqti:</b> ${uzbTime.timeStr} (Asia/Tashkent)
-<b>Server holati:</b> 24/7 Barqaror (Uptime: ${uptimeHours} soat ${uptimeMins} daqiqa)
+<b>⏰ Tizim vaqti:</b> ${uzbTime.timeStr} (Asia/Tashkent)
+<b>⚡ Server holati:</b> 24/7 Barqaror (Uptime: ${uptimeHours} soat ${uptimeMins} daqiqa)
 `.trim();
 
       await sendTelegramMessage(botToken, chatId, adminReport, 'HTML', businessConnectionId);
@@ -2309,42 +2494,67 @@ async function handleTelegramSupportMessage(botToken: string, adminId: string, m
   // Yozish harakatini ko'rsatish
   await sendTelegramChatAction(botToken, chatId, 'typing', businessConnectionId);
 
-  // Oxirgi suhbatlar tarixini olish
+  // Oxirgi suhbatlar tarixini olish (to'g'ri navbatda)
   let conversationHistory: any[] = [];
   try {
-    const recentLogs = db.prepare("SELECT role, text FROM telegram_support_logs WHERE chat_id = ? ORDER BY id DESC LIMIT 8").all(chatId) as any[];
-    recentLogs.reverse().forEach(log => {
-      conversationHistory.push({
-        role: log.role === 'user' ? 'user' : 'model',
-        parts: [{ text: log.text }]
-      });
-    });
+    const recentLogs = db.prepare("SELECT role, text FROM telegram_support_logs WHERE chat_id = ? ORDER BY id DESC LIMIT 10").all(chatId) as any[];
+    const orderedLogs = recentLogs.reverse();
+    
+    // Ketma-ket kelgan bir xil rollarni birlashtirish yoki to'g'ri navbatlash
+    let lastRole: string | null = null;
+    for (const log of orderedLogs) {
+      const currentRole = log.role === 'user' ? 'user' : 'model';
+      if (currentRole === lastRole && conversationHistory.length > 0) {
+        // Bir xil rol ketma-ket kelsa matnni qo'shish
+        const prev = conversationHistory[conversationHistory.length - 1];
+        prev.parts[0].text += `\n${log.text}`;
+      } else {
+        conversationHistory.push({
+          role: currentRole,
+          parts: [{ text: log.text }]
+        });
+        lastRole = currentRole;
+      }
+    }
   } catch (_) {}
+
+  if (conversationHistory.length === 0) {
+    conversationHistory.push({
+      role: 'user',
+      parts: [{ text: text }]
+    });
+  }
 
   let replyText = "";
   try {
     const geminiRes = await callGeminiContentWithFallback({
-      contents: [
-        { role: 'user', parts: [{ text: CLOUDBOT_TELEGRAM_SUPPORT_PROMPT }] },
-        ...conversationHistory
-      ],
-      preferredModel: 'gemini-3.5-flash'
+      contents: conversationHistory,
+      config: {
+        systemInstruction: CLOUDBOT_TELEGRAM_SUPPORT_PROMPT,
+        temperature: 0.7,
+        topP: 0.95
+      },
+      preferredModel: 'gemini-3.7-flash'
     });
     replyText = (geminiRes.text || "").trim();
   } catch (err: any) {
     console.error("[Telegram Gemini Error]:", err);
-    replyText = "Hozirda so'rovingizni qayta ishlashda qiyinchilik bo'ldi. Iltimos, birozdan so'ng qayta urinib ko'ring yoki saytimizdagi Qo'llanma (Docs) bo'limini ko'rib chiqing.";
+    replyText = "Hozirda tizimda qisqa yangilanish ketmoqda. Iltimos, bir necha daqiqadan so'ng yozib ko'ring yoki saytimizdagi Qo'llanma (Docs) bo'limini ko'rib chiqing. Sizga yordam berishdan hamisha mamnunman! 😊";
   }
 
   if (!replyText) {
-    replyText = "Kechirasiz, savolingizni aniqroq shakllantira olasizmi? CloudBot.uz bo'yicha har qanday savolingizga yordam berishga tayyorman.";
+    replyText = "Savolingizni to'liqroq tushunishim uchun biroz batafsilroq yoza olasizmi? Jon deb yordam beraman! 😊";
   }
+
+  // Telegram uchun chiroyli HTML formatlash
+  const formattedHtml = formatTelegramTextToHtml(replyText);
 
   try {
     db.prepare("INSERT INTO telegram_support_logs (chat_id, username, role, text) VALUES (?, ?, 'assistant', ?)").run(chatId, username, replyText);
   } catch (_) {}
 
-  await sendTelegramMessage(botToken, chatId, replyText, 'HTML', businessConnectionId);
+  await sendTelegramMessage(botToken, chatId, formattedHtml, 'HTML', businessConnectionId);
+  await sendTelegramVoice(botToken, chatId, replyText, businessConnectionId);
 }
 
 async function startTelegramSupportBotWorker() {
@@ -4073,7 +4283,7 @@ Javobni FAQAT ushbu formatdagi JSON ko'rinishida bering:
       if (fixedFiles.length === 0) {
         try {
           const geminiRes = await callGeminiContentWithFallback({
-            preferredModel: "gemini-3.5-flash",
+            preferredModel: "gemini-3.5-flash-lite",
             contents: userPrompt,
             config: {
               systemInstruction,
@@ -5501,7 +5711,7 @@ Sizga qo'yilgan qat'iy talablar:
 5. **To'g'ri String Sintaksisi (Valid String Literals)**: Python va JavaScript kodlarida ko'p qatorli matnlar uchun har doim toza uchlik qo'shtirnoq (\"\"\"...\"\"\") yoki bitta qatorda to'g'ri formatlangan \\n ishlating. Hech qachon qator oxirida ochiq/yopilmagan qo'shtirnoq qoldirmang (unterminated string literal xatosining oldini oling).`;
 
           const response = await callGeminiContentWithFallback({
-            preferredModel: "gemini-3.5-flash",
+            preferredModel: "gemini-3.5-flash-lite",
             contents: prompt,
             config: {
               systemInstruction,
@@ -5577,7 +5787,7 @@ Bizning platforma tuzilishi va imkoniyatlari quyidagicha:
           contents.push({ role: 'user', parts: [{ text: prompt }] });
 
           const response = await callGeminiContentWithFallback({
-            preferredModel: "gemini-3.5-flash",
+            preferredModel: "gemini-3.5-flash-lite",
             contents: contents,
             config: {
               systemInstruction

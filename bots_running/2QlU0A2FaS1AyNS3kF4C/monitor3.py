@@ -80,18 +80,29 @@ async def handle_new_payment(event):
 
 
 async def main():
+    phone = (config.HUMO_PHONE or "").strip()
+    if not phone or not config.API_ID or not config.API_HASH:
+        logger.warning("⚠️ Monitor3: HUMO_PHONE yoki API_ID/API_HASH sozlanmagan. Monitor3 kutish rejimida.")
+        while True:
+            await asyncio.sleep(60)
+        return
+
     try:
-        phone = config.HUMO_PHONE
-        if phone and not phone.startswith("+"):
+        if not phone.startswith("+"):
             phone = "+" + phone
 
-        await client.start(
-            phone=phone,
-            password=lambda: config.HUMO_PASSWORD or input("2FA paroli: "),
-            code_callback=lambda: input("Humo bot kodi: "),
-        )
+        await client.connect()
+        if not await client.is_user_authorized():
+            logger.warning("⚠️ Monitor3 (Humo) sessiyasi avtorizatsiyadan o'tmagan. Iltimos, sessiya faylini yangilang.")
+            while True:
+                await asyncio.sleep(60)
+            return
         logger.info("✅ Monitor3 (To'lov) ishga tushdi.")
         await client.run_until_disconnected()
+    except Exception as e:
+        logger.error(f"❌ Monitor3 xatolik: {e}")
+        while True:
+            await asyncio.sleep(60)
     finally:
         await bot.session.close()
 

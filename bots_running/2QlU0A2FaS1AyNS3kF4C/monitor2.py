@@ -63,19 +63,30 @@ async def process_gifts():
 
 
 async def main():
-    phone = config.GIRL_ACCOUNT_PHONE  # Yoki boshqa mos telefon raqami
+    phone = (config.GIRL_ACCOUNT_PHONE or "").strip()
+    if not phone or not config.API_ID or not config.API_HASH:
+        logger.warning("⚠️ Monitor2: GIRL_ACCOUNT_PHONE yoki API_ID/API_HASH sozlanmagan. Monitor2 kutish rejimida.")
+        while True:
+            await asyncio.sleep(60)
+        return
+
     if not phone.startswith("+"):
         phone = "+" + phone
 
     await init_monitor()
-    await client.start(
-        phone=phone,
-        password=lambda: config.GIRL_ACCOUNT_PASSWORD
-        or input("2FA paroli (Standart akkaunt): "),
-        code_callback=lambda: input("Standart akkaunt kodi: "),
-    )
-    logger.info("✅ Monitor2 (Standart akkaunt) ishga tushdi.")
-    await process_gifts()
+    try:
+        await client.connect()
+        if not await client.is_user_authorized():
+            logger.warning("⚠️ Monitor2 sessiyasi avtorizatsiyadan o'tmagan. Iltimos, sessiya faylini yangilang.")
+            while True:
+                await asyncio.sleep(60)
+            return
+        logger.info("✅ Monitor2 (Standart akkaunt) ishga tushdi.")
+        await process_gifts()
+    except Exception as e:
+        logger.error(f"❌ Monitor2 xatolik: {e}")
+        while True:
+            await asyncio.sleep(60)
 
 
 if __name__ == "__main__":
