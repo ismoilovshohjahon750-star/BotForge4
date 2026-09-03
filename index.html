@@ -13,11 +13,66 @@
     <meta property="og:type" content="website" />
     <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9609197230968802" crossorigin="anonymous"></script>
     <script>
-      // Legacy Browser & WebView Polyfills (Pure ES5 for Android 6 / Chrome 44-49)
+      // Legacy Browser & WebView Polyfills (ES5/ES6 bridge for Android 5/6, Chrome 44-50, Safari 9+)
       (function() {
         if (typeof window.globalThis === 'undefined') {
           window.globalThis = window;
         }
+
+        // Proxy Polyfill for framer-motion / motion.div on legacy engines
+        if (typeof window.Proxy === 'undefined') {
+          window.Proxy = function(target, handler) {
+            var fn = typeof target === 'function' ? function() {
+              if (handler && typeof handler.apply === 'function') {
+                return handler.apply(target, this, Array.prototype.slice.call(arguments));
+              }
+              return target.apply(this, arguments);
+            } : {};
+
+            var allTags = [
+              'div', 'span', 'p', 'a', 'button', 'ul', 'li', 'ol', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+              'section', 'header', 'footer', 'nav', 'main', 'form', 'input', 'textarea', 'label',
+              'svg', 'path', 'circle', 'rect', 'line', 'polyline', 'polygon', 'g', 'img', 'table', 'tr',
+              'td', 'th', 'tbody', 'thead', 'article', 'aside', 'figure', 'figcaption', 'i', 'b',
+              'strong', 'em', 'hr', 'br', 'canvas', 'video', 'audio', 'iframe'
+            ];
+
+            for (var i = 0; i < allTags.length; i++) {
+              (function(tag) {
+                Object.defineProperty(fn, tag, {
+                  get: function() {
+                    if (handler && typeof handler.get === 'function') {
+                      return handler.get(target, tag);
+                    }
+                    return undefined;
+                  },
+                  set: function(val) {
+                    if (handler && typeof handler.set === 'function') {
+                      handler.set(target, tag, val);
+                    }
+                  },
+                  enumerable: true,
+                  configurable: true
+                });
+              })(allTags[i]);
+            }
+
+            Object.defineProperty(fn, 'create', {
+              get: function() {
+                if (handler && typeof handler.get === 'function') {
+                  return handler.get(target, 'create');
+                }
+                return undefined;
+              },
+              enumerable: true,
+              configurable: true
+            });
+
+            return fn;
+          };
+        }
+
+        // Object.assign
         if (typeof Object.assign !== 'function') {
           Object.assign = function(target) {
             if (target === undefined || target === null) {
@@ -37,6 +92,21 @@
             return output;
           };
         }
+
+        // Object.fromEntries
+        if (typeof Object.fromEntries !== 'function') {
+          Object.fromEntries = function(entries) {
+            var obj = {};
+            if (entries && typeof entries.forEach === 'function') {
+              entries.forEach(function(item) {
+                if (item) obj[item[0]] = item[1];
+              });
+            }
+            return obj;
+          };
+        }
+
+        // Array.prototype.includes
         if (!Array.prototype.includes) {
           Array.prototype.includes = function(searchElement, fromIndex) {
             var O = Object(this);
@@ -56,12 +126,53 @@
           };
         }
 
+        // structuredClone
+        if (typeof window.structuredClone !== 'function') {
+          window.structuredClone = function(obj) {
+            if (obj === undefined) return undefined;
+            try { return JSON.parse(JSON.stringify(obj)); } catch (e) { return obj; }
+          };
+        }
+
+        // ResizeObserver shim
+        if (typeof window.ResizeObserver === 'undefined') {
+          window.ResizeObserver = function() {
+            this.observe = function() {};
+            this.unobserve = function() {};
+            this.disconnect = function() {};
+          };
+        }
+
+        // IntersectionObserver shim
+        if (typeof window.IntersectionObserver === 'undefined') {
+          window.IntersectionObserver = function() {
+            this.observe = function() {};
+            this.unobserve = function() {};
+            this.disconnect = function() {};
+          };
+        }
+
+        // matchMedia
+        if (typeof window.matchMedia !== 'function') {
+          window.matchMedia = function(q) {
+            return {
+              matches: false,
+              media: q,
+              onchange: null,
+              addListener: function() {},
+              removeListener: function() {},
+              addEventListener: function() {},
+              removeEventListener: function() {},
+              dispatchEvent: function() { return false; }
+            };
+          };
+        }
+
         // Global uncaught error listener for legacy and webview environments
         window.__hasAppLoaded = false;
         window.onerror = function(msg, url, lineNo, columnNo, error) {
           console.warn('[Global Early Error]:', msg, 'at', url, lineNo);
           if (!window.__hasAppLoaded) {
-            var root = document.getElementById('root');
             var errorDetails = document.getElementById('legacy-error-details');
             if (errorDetails) {
               errorDetails.style.display = 'block';
