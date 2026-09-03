@@ -153,7 +153,7 @@ export const LogoFull: React.FC<LogoProps & { showSub?: boolean; vertical?: bool
         <LogoIcon size={size * 1.3} />
         <div className="mt-2.5">
           <h1 className="text-2xl font-black text-white tracking-wider uppercase leading-none font-sans flex items-center justify-center gap-0.5">
-            CLOUD<span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-cyan-300 to-blue-400">BOT</span>
+            CLOUD<span className="text-emerald-400">BOT</span>
           </h1>
           {showSub && (
             <p className="text-[10px] text-cyan-400/80 tracking-widest uppercase mt-1 font-mono font-medium">
@@ -170,7 +170,7 @@ export const LogoFull: React.FC<LogoProps & { showSub?: boolean; vertical?: bool
       <LogoIcon size={size} />
       <div className="flex flex-col">
         <h1 className="text-xl font-black text-white tracking-wider uppercase leading-none font-sans flex items-center gap-0.5">
-          CLOUD<span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-cyan-300 to-blue-400">BOT</span>
+          CLOUD<span className="text-emerald-400">BOT</span>
         </h1>
         {showSub && (
           <p className="text-[9.5px] text-cyan-400/80 tracking-widest uppercase mt-1 font-mono font-medium">

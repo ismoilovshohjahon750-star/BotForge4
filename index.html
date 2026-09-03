@@ -136,8 +136,24 @@
 
         // ResizeObserver shim
         if (typeof window.ResizeObserver === 'undefined') {
-          window.ResizeObserver = function() {
-            this.observe = function() {};
+          window.ResizeObserver = function(callback) {
+            this.callback = callback;
+            this.observe = function(target) {
+              if (this.callback && target) {
+                var self = this;
+                setTimeout(function() {
+                  var rect = target.getBoundingClientRect ? target.getBoundingClientRect() : { width: 300, height: 200, top: 0, left: 0 };
+                  try {
+                    self.callback([{
+                      target: target,
+                      contentRect: rect,
+                      borderBoxSize: [{ inlineSize: rect.width || 300, blockSize: rect.height || 200 }],
+                      contentBoxSize: [{ inlineSize: rect.width || 300, blockSize: rect.height || 200 }]
+                    }], self);
+                  } catch (e) {}
+                }, 0);
+              }
+            };
             this.unobserve = function() {};
             this.disconnect = function() {};
           };
@@ -145,8 +161,27 @@
 
         // IntersectionObserver shim
         if (typeof window.IntersectionObserver === 'undefined') {
-          window.IntersectionObserver = function() {
-            this.observe = function() {};
+          window.IntersectionObserver = function(callback) {
+            this.callback = callback;
+            this.observe = function(target) {
+              if (this.callback && target) {
+                var self = this;
+                setTimeout(function() {
+                  var rect = target.getBoundingClientRect ? target.getBoundingClientRect() : { width: 100, height: 100, top: 0, left: 0 };
+                  try {
+                    self.callback([{
+                      isIntersecting: true,
+                      intersectionRatio: 1,
+                      target: target,
+                      boundingClientRect: rect,
+                      intersectionRect: rect,
+                      rootBounds: null,
+                      time: Date.now()
+                    }], self);
+                  } catch (e) {}
+                }, 0);
+              }
+            };
             this.unobserve = function() {};
             this.disconnect = function() {};
           };

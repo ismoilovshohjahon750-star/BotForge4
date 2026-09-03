@@ -212,7 +212,25 @@
   // 11. ResizeObserver fallback shim
   if (typeof (window as any).ResizeObserver === 'undefined') {
     (window as any).ResizeObserver = class {
-      observe() {}
+      callback: any;
+      constructor(callback: any) {
+        this.callback = callback;
+      }
+      observe(target: any) {
+        if (this.callback && target) {
+          setTimeout(() => {
+            const rect = target.getBoundingClientRect ? target.getBoundingClientRect() : { width: 300, height: 200, top: 0, left: 0 };
+            try {
+              this.callback([{
+                target: target,
+                contentRect: rect,
+                borderBoxSize: [{ inlineSize: rect.width || 300, blockSize: rect.height || 200 }],
+                contentBoxSize: [{ inlineSize: rect.width || 300, blockSize: rect.height || 200 }]
+              }], this);
+            } catch (e) {}
+          }, 0);
+        }
+      }
       unobserve() {}
       disconnect() {}
     };
@@ -221,7 +239,28 @@
   // 12. IntersectionObserver fallback shim
   if (typeof (window as any).IntersectionObserver === 'undefined') {
     (window as any).IntersectionObserver = class {
-      observe() {}
+      callback: any;
+      constructor(callback: any) {
+        this.callback = callback;
+      }
+      observe(target: any) {
+        if (this.callback && target) {
+          setTimeout(() => {
+            const rect = target.getBoundingClientRect ? target.getBoundingClientRect() : { width: 100, height: 100, top: 0, left: 0 };
+            try {
+              this.callback([{
+                isIntersecting: true,
+                intersectionRatio: 1,
+                target: target,
+                boundingClientRect: rect,
+                intersectionRect: rect,
+                rootBounds: null,
+                time: Date.now()
+              }], this);
+            } catch (e) {}
+          }, 0);
+        }
+      }
       unobserve() {}
       disconnect() {}
     };
