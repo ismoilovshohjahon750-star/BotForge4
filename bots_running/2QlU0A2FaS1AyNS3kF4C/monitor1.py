@@ -1,11 +1,14 @@
 import asyncio
 import logging
+import sys
 import random
 from telethon import TelegramClient, functions
 import config
 import database as db
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+logging.getLogger("telethon.network.connection.connection").setLevel(logging.ERROR)
+logging.getLogger("telethon.network.mtprotosender").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 client = TelegramClient("girl_account_session", config.API_ID, config.API_HASH)

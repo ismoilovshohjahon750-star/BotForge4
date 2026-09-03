@@ -7,10 +7,93 @@
     <link rel="apple-touch-icon" href="/favicon.svg" />
     <title>CloudBot — Botlar uchun 24/7 Cloud Hosting</title>
     <meta name="description" content="Telegram va Discord botlarini .zip orqali yuklab, 24/7 cloud hostingda ishga tushiruvchi SaaS platforma." />
+    <meta property="og:title" content="CloudBot — Botlar uchun 24/7 Cloud Hosting" />
+    <meta property="og:description" content="Telegram va Discord botlarini .zip orqali yuklab, 24/7 cloud hostingda ishga tushiruvchi SaaS platforma." />
+    <meta property="og:image" content="/botly-icon.png" />
+    <meta property="og:type" content="website" />
     <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9609197230968802" crossorigin="anonymous"></script>
+    <script>
+      // Legacy Browser & WebView Polyfills (Pure ES5 for Android 6 / Chrome 44-49)
+      (function() {
+        if (typeof window.globalThis === 'undefined') {
+          window.globalThis = window;
+        }
+        if (typeof Object.assign !== 'function') {
+          Object.assign = function(target) {
+            if (target === undefined || target === null) {
+              throw new TypeError('Cannot convert undefined or null to object');
+            }
+            var output = Object(target);
+            for (var index = 1; index < arguments.length; index++) {
+              var source = arguments[index];
+              if (source !== undefined && source !== null) {
+                for (var nextKey in source) {
+                  if (Object.prototype.hasOwnProperty.call(source, nextKey)) {
+                    output[nextKey] = source[nextKey];
+                  }
+                }
+              }
+            }
+            return output;
+          };
+        }
+        if (!Array.prototype.includes) {
+          Array.prototype.includes = function(searchElement, fromIndex) {
+            var O = Object(this);
+            var len = parseInt(O.length, 10) || 0;
+            if (len === 0) return false;
+            var n = parseInt(fromIndex, 10) || 0;
+            var k;
+            if (n >= 0) { k = n; } else { k = len + n; if (k < 0) k = 0; }
+            while (k < len) {
+              var currentElement = O[k];
+              if (searchElement === currentElement || (searchElement !== searchElement && currentElement !== currentElement)) {
+                return true;
+              }
+              k++;
+            }
+            return false;
+          };
+        }
+
+        // Global uncaught error listener for legacy and webview environments
+        window.__hasAppLoaded = false;
+        window.onerror = function(msg, url, lineNo, columnNo, error) {
+          console.warn('[Global Early Error]:', msg, 'at', url, lineNo);
+          if (!window.__hasAppLoaded) {
+            var root = document.getElementById('root');
+            var errorDetails = document.getElementById('legacy-error-details');
+            if (errorDetails) {
+              errorDetails.style.display = 'block';
+              errorDetails.innerText = 'Xatolik: ' + (msg || 'Noma\'lum xatolik yuz berdi');
+            }
+          }
+          return false;
+        };
+      })();
+    </script>
   </head>
-  <body>
-    <div id="root"></div>
+  <body class="bg-[#0b0f17] text-slate-100">
+    <div id="root">
+      <!-- Fallback UI displayed until React mounts to prevent white screen -->
+      <div id="app-initial-loader" style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #0b0f17; color: #e2e8f0; font-family: system-ui, -apple-system, sans-serif; padding: 20px; text-align: center;">
+        <div style="width: 48px; height: 48px; border: 3px solid rgba(59, 130, 246, 0.2); border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 20px;"></div>
+        <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
+        <h3 style="font-size: 18px; font-weight: 600; margin: 0 0 8px 0; color: #f8fafc;">CloudBot yuklanmoqda...</h3>
+        <p style="font-size: 13px; color: #94a3b8; max-width: 320px; margin: 0 auto 16px auto; line-height: 1.5;">
+          Iltimos, kuting. Tizim komponentlari sozlanmoqda...
+        </p>
+        <div id="legacy-error-details" style="display: none; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #fca5a5; font-size: 12px; padding: 8px 12px; border-radius: 8px; margin-bottom: 14px; max-width: 90%; word-break: break-all;"></div>
+        <button onclick="window.location.reload()" style="background: #2563eb; color: #ffffff; border: none; padding: 8px 18px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer;">
+          Qayta yuklash 🔄
+        </button>
+      </div>
+    </div>
+    <script>
+      window.addEventListener('DOMContentLoaded', function() {
+        window.__hasAppLoaded = true;
+      });
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -1,12 +1,15 @@
 import asyncio
 import re
 import logging
+import sys
 from telethon import TelegramClient, events
 from aiogram import Bot
 import config
 import database as db
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+logging.getLogger("telethon.network.connection.connection").setLevel(logging.ERROR)
+logging.getLogger("telethon.network.mtprotosender").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 client = TelegramClient("humo_payment_session", config.API_ID, config.API_HASH)

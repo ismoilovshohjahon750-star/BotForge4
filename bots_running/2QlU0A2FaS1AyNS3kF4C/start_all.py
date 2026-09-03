@@ -23,16 +23,36 @@ async def run_script(script_path: str):
         stderr=asyncio.subprocess.PIPE,
     )
 
-    async def read_stream(stream, prefix):
+    async def read_stream(stream, script_name, is_err=False):
         while True:
             line = await stream.readline()
             if not line:
                 break
-            print(f"[{prefix}] {line.decode().strip()}")
+            text = line.decode("utf-8", errors="replace").strip()
+            if not text:
+                continue
+
+            # Transient Telethon / Telegram network keep-alive disconnects (auto-reconnected by Telethon)
+            if "during disconnect" in text and ("ConnectionResetError" in text or "Connection reset by peer" in text):
+                continue
+            if "Server closed the connection" in text and "Connection reset by peer" in text:
+                continue
+            if "Connection closed while receiving data" in text and "Connection reset by peer" in text:
+                continue
+
+            # In Python, standard logging sends INFO/WARNING to stderr. Don't label them as ERR.
+            if is_err:
+                is_real_error = any(kw in text for kw in ("Traceback (most recent call last):", "Error:", "Exception:", "CRITICAL:"))
+                if is_real_error and not text.startswith("INFO:"):
+                    print(f"[{script_name} ERR] {text}", flush=True)
+                else:
+                    print(f"[{script_name}] {text}", flush=True)
+            else:
+                print(f"[{script_name}] {text}", flush=True)
 
     await asyncio.gather(
-        read_stream(process.stdout, script_name),
-        read_stream(process.stderr, f"{script_name} ERR"),
+        read_stream(process.stdout, script_name, is_err=False),
+        read_stream(process.stderr, script_name, is_err=True),
     )
     await process.wait()
     print(f"✅ {script_name} {process.returncode} kod bilan yakunlandi.")

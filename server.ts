@@ -1690,7 +1690,10 @@ async function startBot(botId: string) {
                     line.includes('httpx.TimeoutException') ||
                     line.includes('telegram.error.TimedOut') ||
                     line.includes('telegram.error.NetworkError') ||
-                    line.includes('telegram.error.RetryAfter')
+                    line.includes('telegram.error.RetryAfter') ||
+                    (line.includes('ConnectionResetError') && line.includes('during disconnect')) ||
+                    line.includes('Connection reset by peer') ||
+                    line.includes('Server closed the connection: [Errno 104]')
                 ) {
                     continue;
                 }
@@ -1734,6 +1737,20 @@ async function startBot(botId: string) {
                     addBotLog(botId, 'run', `🚨 ${line}`);
                     addBotLog(botId, 'system', `💡 Yechim: Kodingizda kerakli kutubxona yetishmayapti. Yuqoridagi "Xatoliklarni tuzatish (Botly AI)" tugmasini bosing — AI avtomatik ravishda barcha kerakli paketlarni o'rnatib kodni to'g'rilaydi.`);
                     continue;
+                }
+
+                // Clean up subprocess ERR tags if the message is actually INFO or WARNING
+                if (line.includes(' ERR]')) {
+                    if (line.includes('INFO:') || line.includes(' - INFO - ')) {
+                        const cleaned = line.replace(/\s+ERR\]/, ']');
+                        addBotLog(botId, 'run', `ℹ️ ${cleaned}`);
+                        continue;
+                    }
+                    if (line.includes('WARNING:') || line.includes(' - WARNING - ') || line.includes('⚠️')) {
+                        const cleaned = line.replace(/\s+ERR\]/, ']');
+                        addBotLog(botId, 'run', `⚠️ ${cleaned}`);
+                        continue;
+                    }
                 }
 
                 if (isStderr) {
@@ -2902,9 +2919,9 @@ async function startServer() {
     }
   }
 
-  // Run subscription expiration check on startup & every 10 seconds
+  // Run subscription expiration check on startup & every 60 seconds (optimized for I/O)
   checkAndExpireSubscriptions();
-  setInterval(checkAndExpireSubscriptions, 10000);
+  setInterval(checkAndExpireSubscriptions, 60000);
 
   // Admin Routes
   app.post("/api/auth/sync", requireAuth, async (req: AuthRequest, res) => {

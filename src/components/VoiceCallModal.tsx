@@ -307,7 +307,9 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
           <div className="flex items-center justify-center gap-2 mb-1">
             <h3 className="text-xl font-black text-white tracking-tight">{partnerName}</h3>
             {isSupport && (
-              <ShieldAlert className="w-4 h-4 text-amber-400" title="Rasmiy Support" />
+              <span title="Rasmiy Support">
+                <ShieldAlert className="w-4 h-4 text-amber-400" />
+              </span>
             )}
           </div>
 

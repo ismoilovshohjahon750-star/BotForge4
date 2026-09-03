@@ -56,7 +56,7 @@ export const NotificationBell: React.FC = () => {
           toast.success("Telefon tizim bildirishnomalari yoqildi!");
           new Notification("Bildirishnomalar Faol!", {
             body: "Endi obuna, to'lov va chat xabarlari to'g'ridan-to'g'ri telefoningiz bildirishnoma panelida chiqadi.",
-            icon: "/favicon.ico"
+            icon: "/favicon.svg"
           });
         } else {
           toast.info("Telefon bildirishnomasiga ruxsat berilmadi. Sozlamalardan yoqishingiz mumkin.");
@@ -128,7 +128,7 @@ export const NotificationBell: React.FC = () => {
             const latest = unreads[0];
             new Notification(latest.title, {
               body: latest.message,
-              icon: '/favicon.ico'
+              icon: '/favicon.svg'
             });
           }
         } catch (e) {
