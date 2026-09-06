@@ -21,19 +21,21 @@ import {
   Bot
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { useTranslation } from '../context/LanguageContext';
 
 export const Docs: React.FC = () => {
+  const { t } = useTranslation();
   const [activeSection, setActiveSection] = useState('uploading');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const sections = [
-    { id: 'about', title: 'Platforma haqida', icon: <BookOpen className="w-4 h-4" /> },
-    { id: 'how-it-works', title: 'Qanday ishlaydi?', icon: <Server className="w-4 h-4" /> },
-    { id: 'uploading', title: 'Bot va .ZIP yuklash tartibi', icon: <Rocket className="w-4 h-4 text-emerald-400" /> },
-    { id: 'supported', title: 'Qo\'llab-quvvatlanadigan tillar', icon: <Code className="w-4 h-4" /> },
-    { id: 'limits', title: 'Tariflar va Limitlar', icon: <Server className="w-4 h-4" /> },
-    { id: 'security', title: 'Xavfsizlik', icon: <Shield className="w-4 h-4" /> },
-    { id: 'support', title: 'Yordam va Administrator', icon: <Send className="w-4 h-4 text-sky-400" /> },
+    { id: 'about', title: t('docs_about', 'Platforma haqida'), icon: <BookOpen className="w-4 h-4" /> },
+    { id: 'how-it-works', title: t('docs_how', 'Qanday ishlaydi?'), icon: <Server className="w-4 h-4" /> },
+    { id: 'uploading', title: t('docs_upload', 'Bot va .ZIP yuklash tartibi'), icon: <Rocket className="w-4 h-4 text-emerald-400" /> },
+    { id: 'supported', title: t('docs_langs', 'Qo\'llab-quvvatlanadigan tillar'), icon: <Code className="w-4 h-4" /> },
+    { id: 'limits', title: t('docs_limits', 'Tariflar va Limitlar'), icon: <Server className="w-4 h-4" /> },
+    { id: 'security', title: t('docs_security', 'Xavfsizlik'), icon: <Shield className="w-4 h-4" /> },
+    { id: 'support', title: t('docs_support', 'Yordam va Administrator'), icon: <Send className="w-4 h-4 text-sky-400" /> },
   ];
 
   return (
@@ -42,7 +44,7 @@ export const Docs: React.FC = () => {
       <div className="md:hidden border-b border-border p-4 flex items-center justify-between bg-card">
         <h2 className="font-semibold text-lg flex items-center gap-2">
           <BookOpen className="w-5 h-5 text-primary" />
-          Hujjatlar
+          {t('docs_title', 'Hujjatlar')}
         </h2>
         <Button variant="ghost" size="icon" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
           <Menu className="w-5 h-5" />
@@ -54,7 +56,7 @@ export const Docs: React.FC = () => {
         <div className="p-6 sticky top-0">
           <h2 className="font-semibold text-lg mb-6 hidden md:flex items-center gap-2">
             <BookOpen className="w-5 h-5 text-primary" />
-            Hujjatlar
+            {t('docs_title', 'Hujjatlar')}
           </h2>
           <nav className="space-y-1">
             {sections.map((section) => (

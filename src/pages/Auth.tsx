@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -8,9 +9,12 @@ import {
   sendEmailVerification, 
   sendPasswordResetEmail,
   signInWithPopup,
-  signInWithRedirect 
+  signInWithRedirect,
+  signInWithCredential,
+  GoogleAuthProvider
 } from 'firebase/auth';
 import { auth, googleProvider, githubProvider } from '../lib/firebase';
+import primaryConfig from '../../firebase-applet-config.json';
 import { LogoIcon } from '../components/Logo';
 import { 
   Bot, 
@@ -33,9 +37,12 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTranslation } from '../context/LanguageContext';
 
 export const Auth: React.FC = () => {
+  const navigate = useNavigate();
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [isSignUp, setIsSignUp] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [showPassword, setShowPassword] = useState<boolean>(false);
@@ -44,6 +51,7 @@ export const Auth: React.FC = () => {
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [confirmPassword, setConfirmPassword] = useState<string>('');
+  const [agreedToTerms, setAgreedToTerms] = useState<boolean>(false);
 
   // Email verification state variables for displaying designed Uzbek mail body
   const [verificationSent, setVerificationSent] = useState<boolean>(false);
@@ -57,6 +65,7 @@ export const Auth: React.FC = () => {
       setLoading(true);
       await signInWithPopup(auth, googleProvider);
       toast.success("Google orqali muvaffaqiyatli kirdingiz!");
+      navigate('/dashboard');
     } catch (error: any) {
       if (error.code === 'auth/popup-blocked' || error.code === 'auth/cancelled-popup-request') {
         try {
@@ -89,6 +98,10 @@ export const Auth: React.FC = () => {
     }
 
     if (isSignUp) {
+      if (!agreedToTerms) {
+        toast.error("Ro'yxatdan o'tish uchun Foydalanish shartlari va Maxfiylik siyosatiga (To'lovlar qaytarilmasligi qoidasiga) rozilik bildirishingiz shart!");
+        return;
+      }
       if (password !== confirmPassword) {
         toast.error("Parollar bir-biriga mos kelmadi!");
         return;
@@ -378,12 +391,12 @@ export const Auth: React.FC = () => {
                   <LogoIcon size={38} />
                 </div>
                 <CardTitle className="text-2xl font-black text-white tracking-tight uppercase">
-                  {isSignUp ? 'Yangi Hisob Yaratish' : 'Tizimga Kirish'}
+                  {isSignUp ? (t('auth_signupTab', "Ro'yxatdan o'tish")) : t('auth_loginTitle', 'Tizimga Kirish')}
                 </CardTitle>
                 <CardDescription className="text-xs text-slate-400">
                   {isSignUp 
                     ? 'Botly platformasining imkoniyatlaridan to\'liq foydalanish uchun ro\'yxatdan o\'ting'
-                    : 'Boshqaruv paneliga kirish va botlarni boshqarish uchun tizimga kiring'
+                    : t('auth_loginSubtitle', 'Boshqaruv paneliga kirish va botlarni boshqarish uchun tizimga kiring')
                   }
                 </CardDescription>
               </CardHeader>
@@ -398,7 +411,7 @@ export const Auth: React.FC = () => {
                       !isSignUp ? 'bg-[#181826] text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    Login
+                    {t('auth_loginTab', 'Login')}
                   </button>
                   <button
                     type="button"
@@ -407,7 +420,7 @@ export const Auth: React.FC = () => {
                       isSignUp ? 'bg-[#181826] text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    Sign Up
+                    {t('auth_signupTab', 'Sign Up')}
                   </button>
                 </div>
               </div>
@@ -420,15 +433,15 @@ export const Auth: React.FC = () => {
                     type="button"
                     onClick={handleGoogleLogin}
                     disabled={loading}
-                    className="w-full flex items-center justify-center gap-3 px-6 py-4 border border-white/10 bg-[#12121c] hover:bg-[#181826]/80 text-white text-xs font-bold rounded-xl transition-all cursor-pointer select-none shadow-md"
+                    className="w-full flex items-center justify-center gap-3 px-6 py-3.5 border border-white/10 bg-[#12121c] hover:bg-[#181826] active:scale-[0.99] text-white text-sm font-semibold rounded-xl transition-all cursor-pointer select-none shadow-md hover:border-white/20"
                   >
-                    <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                       <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
                       <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
                       <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05"/>
                       <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335"/>
                     </svg>
-                    <span>Google orqali kirish</span>
+                    <span>{t('auth_googleLogin', 'Google orqali kirish')}</span>
                   </button>
                 </div>
 
@@ -436,7 +449,7 @@ export const Auth: React.FC = () => {
                 <div className="relative my-4 select-none flex items-center gap-4">
                   <div className="flex-1 h-px bg-gradient-to-r from-transparent via-white/10 to-white/15" />
                   <span className="text-[10px] uppercase tracking-[0.25em] text-[#6b6b99] font-mono font-black shrink-0">
-                    yoki
+                    {t('auth_or', 'YOKI')}
                   </span>
                   <div className="flex-1 h-px bg-gradient-to-l from-transparent via-white/10 to-white/15" />
                 </div>
@@ -446,7 +459,7 @@ export const Auth: React.FC = () => {
                   
                   {/* Email Input */}
                   <div className="space-y-1.5 text-left">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-1">Email Manzil:</label>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-1">{t('auth_emailLabel', 'EMAIL MANZIL:')}</label>
                     <div className="relative">
                       <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
                         <Mail className="w-4 h-4" />
@@ -465,7 +478,7 @@ export const Auth: React.FC = () => {
                   {/* Password Input */}
                   <div className="space-y-1.5 text-left">
                     <div className="flex items-center justify-between pl-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Maxfiy Parol:</label>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('auth_passwordLabel', 'MAXFIY PAROL:')}</label>
                       {!isSignUp && (
                         <button
                           type="button"
@@ -473,7 +486,7 @@ export const Auth: React.FC = () => {
                           disabled={loading}
                           className="text-[10px] text-emerald-400 hover:text-emerald-300 font-semibold transition-colors cursor-pointer hover:underline"
                         >
-                          Parolni unutdingizmi?
+                          {t('auth_forgotPassword', 'Parolni unutdingizmi?')}
                         </button>
                       )}
                     </div>
@@ -519,6 +532,48 @@ export const Auth: React.FC = () => {
                     </div>
                   )}
 
+                  {/* Mandatory Terms & Privacy Policy Checkbox (Only for Sign Up) */}
+                  {isSignUp && (
+                    <div className="pt-2 animate-fade-in text-left">
+                      <label className="flex items-start gap-2.5 p-3 rounded-xl bg-white/[0.03] border border-white/10 hover:border-emerald-500/30 transition-all cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={agreedToTerms}
+                          onChange={(e) => setAgreedToTerms(e.target.checked)}
+                          className="mt-0.5 w-4 h-4 rounded border-slate-600 text-emerald-500 focus:ring-emerald-500/30 cursor-pointer accent-emerald-500 shrink-0"
+                        />
+                        <div className="text-[11px] text-slate-300 leading-snug">
+                          <span>
+                            Men{' '}
+                            <a
+                              href="/terms"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-emerald-400 font-bold hover:underline"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              Foydalanish shartlari
+                            </a>{' '}
+                            va{' '}
+                            <a
+                              href="/privacy"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-cyan-400 font-bold hover:underline"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              Maxfiylik siyosati
+                            </a>
+                            ga to'liq roziman.
+                          </span>
+                          <p className="text-[10px] text-amber-400/90 font-medium mt-1">
+                            ⚠️ Barcha to'lovlar qat'iy va qaytarib berilmasligini (No Refund) qabul qilaman.
+                          </p>
+                        </div>
+                      </label>
+                    </div>
+                  )}
+
                   {/* Submit Action Button */}
                   <Button
                     type="submit"
@@ -529,7 +584,7 @@ export const Auth: React.FC = () => {
                       <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
                     ) : (
                       <>
-                        <span>{isSignUp ? "Hisob yaratish va emailni tasdiqlash" : "Tizimga xavfsiz kirish"}</span>
+                        <span>{isSignUp ? t('auth_signupBtn', "RO'YXATDAN O'TISH →") : t('auth_loginBtn', "TIZIMGA XAVFSIZ KIRISH →")}</span>
                         <ArrowRight className="w-3.5 h-3.5" />
                       </>
                     )}
@@ -539,7 +594,7 @@ export const Auth: React.FC = () => {
                 {/* Premium quality notice statement tag */}
                 <div className="pt-3 flex items-center justify-center gap-1.5 text-[10px] text-slate-500 font-mono">
                   <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Barcha huquqlar himoyalangan</span>
+                  <span>{t('rightsReserved', 'Barcha huquqlar himoyalangan')}</span>
                 </div>
 
               </CardContent>

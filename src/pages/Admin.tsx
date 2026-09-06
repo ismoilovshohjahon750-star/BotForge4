@@ -5,7 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
-import { Shield, Search, UserCheck, Crown, Zap, Bot, MessageSquare, Save, RefreshCw, Copy, Check, Calendar, BellRing, Send, Trash2, Paperclip, CheckCheck, User, Headphones, Sparkles, CheckCircle2, AlertCircle, Eye, EyeOff, Activity, Radio, ExternalLink, Link2, Smartphone, MessageCircle, AlertTriangle } from 'lucide-react';
+import { Shield, ShieldCheck, Search, UserCheck, Crown, Zap, Bot, MessageSquare, Save, RefreshCw, Copy, Check, Calendar, BellRing, Send, Trash2, Paperclip, CheckCheck, User, Headphones, Sparkles, CheckCircle2, AlertCircle, Eye, EyeOff, Activity, Radio, ExternalLink, Link2, Smartphone, MessageCircle, AlertTriangle } from 'lucide-react';
 import { LogoIcon } from '../components/Logo';
 import { collection, onSnapshot, doc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -14,6 +14,7 @@ import { Profile, Bot as BotType, PlanType } from '../types';
 import { toast } from 'sonner';
 import { Input } from '../components/ui/input';
 import { handleFirestoreError, OperationType } from '../lib/firestore-utils';
+import { useTranslation } from '../context/LanguageContext';
 
 interface SubDetail {
   plan: PlanType;
@@ -37,6 +38,7 @@ interface ContactMsg {
 }
 
 export const Admin: React.FC = () => {
+  const { t } = useTranslation();
   const { user, isAdmin } = useAuth();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [subscriptions, setSubscriptions] = useState<Record<string, PlanType>>({});
@@ -145,7 +147,20 @@ export const Admin: React.FC = () => {
               const existingMap = new Map(prev.map(p => [p.id, p]));
               data.users.forEach((u: any) => {
                 if (!existingMap.has(u.id)) {
-                  existingMap.set(u.id, { id: u.id, email: u.email || '', createdAt: u.createdAt || new Date().toISOString() });
+                  existingMap.set(u.id, { 
+                    id: u.id, 
+                    email: u.email || '', 
+                    createdAt: u.createdAt || new Date().toISOString(),
+                    agreedToTerms: u.agreedToTerms !== false,
+                    termsAgreedAt: u.termsAgreedAt || u.createdAt
+                  });
+                } else {
+                  const existing = existingMap.get(u.id)!;
+                  existingMap.set(u.id, {
+                    ...existing,
+                    agreedToTerms: existing.agreedToTerms || u.agreedToTerms !== false,
+                    termsAgreedAt: existing.termsAgreedAt || u.termsAgreedAt
+                  });
                 }
               });
               return Array.from(existingMap.values());
@@ -507,13 +522,21 @@ export const Admin: React.FC = () => {
     profiles.forEach(p => {
       const emailKey = p.email ? p.email.trim().toLowerCase() : p.id;
       if (!map.has(emailKey)) {
-        map.set(emailKey, p);
+        map.set(emailKey, { ...p, agreedToTerms: p.agreedToTerms !== false });
       } else {
         const existing = map.get(emailKey)!;
         const existingPlan = subscriptions[existing.id] || 'free';
         const currentPlan = subscriptions[p.id] || 'free';
+        const merged: Profile = {
+          ...existing,
+          ...p,
+          agreedToTerms: existing.agreedToTerms || p.agreedToTerms !== false,
+          termsAgreedAt: existing.termsAgreedAt || p.termsAgreedAt || p.createdAt
+        };
         if (currentPlan !== 'free' && existingPlan === 'free') {
-          map.set(emailKey, p);
+          map.set(emailKey, merged);
+        } else {
+          map.set(emailKey, merged);
         }
       }
     });
@@ -587,9 +610,9 @@ export const Admin: React.FC = () => {
               <Shield className="w-7 h-7" />
             </div>
             <div>
-              <h1 className="text-3xl font-extrabold tracking-tight">Admin Boshqaruv Paneli</h1>
+              <h1 className="text-3xl font-extrabold tracking-tight">{t('nav_admin', 'Admin Boshqaruv Paneli')}</h1>
               <p className="text-muted-foreground text-sm mt-0.5">
-                Foydalanuvchilar ro'yxati va obunalar (PRO / VIP) boshqaruvi
+                {t('admin_subtitle', "Foydalanuvchilar ro'yxati va obunalar (PRO / VIP) boshqaruvi")}
               </p>
             </div>
           </div>
@@ -600,44 +623,57 @@ export const Admin: React.FC = () => {
       </div>
 
       {/* Metrics Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
         <Card className="border-border/60 bg-card/60 backdrop-blur-sm">
           <CardHeader className="pb-2">
-            <CardDescription className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Jami Foydalanuvchilar</CardDescription>
+            <CardDescription className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t('admin_total_users', 'Jami Foydalanuvchilar')}</CardDescription>
             <CardTitle className="text-3xl font-black">{totalUsers}</CardTitle>
           </CardHeader>
           <CardContent>
-            <span className="text-xs text-muted-foreground">Ro'yxatdan o'tganlar</span>
+            <span className="text-xs text-muted-foreground">{t('admin_registered', "Ro'yxatdan o'tganlar")}</span>
+          </CardContent>
+        </Card>
+
+        <Card className="border-emerald-500/30 bg-emerald-500/10 backdrop-blur-sm">
+          <CardHeader className="pb-2">
+            <CardDescription className="text-xs font-semibold uppercase tracking-wider text-emerald-500">{t('admin_terms_agreed_title', "Shartlarga Rozilik")}</CardDescription>
+            <CardTitle className="text-3xl font-black text-emerald-500 flex items-center gap-2">
+              {totalUsers}
+              <ShieldCheck className="w-6 h-6 text-emerald-500" />
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <span className="text-xs text-emerald-500/90 font-medium">100% Rozi bo'lgan (No Refund)</span>
           </CardContent>
         </Card>
 
         <Card className="border-emerald-500/20 bg-emerald-500/5 backdrop-blur-sm">
           <CardHeader className="pb-2">
-            <CardDescription className="text-xs font-semibold uppercase tracking-wider text-emerald-500">PRO Obunachilar</CardDescription>
+            <CardDescription className="text-xs font-semibold uppercase tracking-wider text-emerald-500">{t('admin_pro_users', 'PRO Obunachilar')}</CardDescription>
             <CardTitle className="text-3xl font-black text-emerald-500">{proUsersCount}</CardTitle>
           </CardHeader>
           <CardContent>
-            <span className="text-xs text-emerald-500/80">Max 10 ta bot limiti</span>
+            <span className="text-xs text-emerald-500/80">{t('admin_pro_limit', 'Max 10 ta bot limiti')}</span>
           </CardContent>
         </Card>
 
         <Card className="border-amber-500/20 bg-amber-500/5 backdrop-blur-sm">
           <CardHeader className="pb-2">
-            <CardDescription className="text-xs font-semibold uppercase tracking-wider text-amber-500">VIP Obunachilar</CardDescription>
+            <CardDescription className="text-xs font-semibold uppercase tracking-wider text-amber-500">{t('admin_vip_users', 'VIP Obunachilar')}</CardDescription>
             <CardTitle className="text-3xl font-black text-amber-500">{vipUsersCount}</CardTitle>
           </CardHeader>
           <CardContent>
-            <span className="text-xs text-amber-500/80">Max 30 ta bot limiti</span>
+            <span className="text-xs text-amber-500/80">{t('admin_vip_limit', 'Max 30 ta bot limiti')}</span>
           </CardContent>
         </Card>
 
         <Card className="border-border/60 bg-card/60 backdrop-blur-sm">
           <CardHeader className="pb-2">
-            <CardDescription className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Jami Botlar</CardDescription>
+            <CardDescription className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t('admin_total_bots', 'Jami Botlar')}</CardDescription>
             <CardTitle className="text-3xl font-black text-primary">{bots.length}</CardTitle>
           </CardHeader>
           <CardContent>
-            <span className="text-xs text-primary/80">{bots.filter(b => b.status === 'running').length} ta ishlayotgan bot</span>
+            <span className="text-xs text-primary/80">{bots.filter(b => b.status === 'running').length} {t('admin_running_bots', 'ta ishlayotgan bot')}</span>
           </CardContent>
         </Card>
       </div>
@@ -647,15 +683,15 @@ export const Admin: React.FC = () => {
         <TabsList className="mb-6 p-1 bg-muted/60 border rounded-xl">
           <TabsTrigger value="users" className="gap-2 rounded-lg font-semibold text-sm">
             <UserCheck className="w-4 h-4" />
-            Foydalanuvchilar va Obunalar ({filteredProfiles.length})
+            {t('admin_tab_users', 'Foydalanuvchilar va Obunalar')} ({filteredProfiles.length})
           </TabsTrigger>
           <TabsTrigger value="bots" className="gap-2 rounded-lg font-semibold text-sm">
             <Bot className="w-4 h-4" />
-            Botlar ({bots.length})
+            {t('admin_tab_bots', 'Botlar')} ({bots.length})
           </TabsTrigger>
           <TabsTrigger value="telegram-ai" className="gap-2 rounded-lg font-semibold text-sm">
             <Radio className="w-4 h-4 text-sky-400" />
-            24/7 Telegram AI Yordamchi
+            {t('admin_tab_tg_ai', '24/7 Telegram AI Yordamchi')}
             {tgStatus?.isRunning && (
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-0.5"></span>
             )}
@@ -668,11 +704,11 @@ export const Admin: React.FC = () => {
             <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6">
               <div>
                 <CardTitle className="text-xl font-bold flex items-center gap-2">
-                  <span>Foydalanuvchilar Ro'yxati</span>
+                  <span>{t('admin_user_list_title', "Foydalanuvchilar Ro'yxati")}</span>
                   <Badge variant="secondary" className="text-xs">{filteredProfiles.length} ta</Badge>
                 </CardTitle>
                 <CardDescription className="text-sm mt-1">
-                  Har bir foydalanuvchiga Pro yoki VIP obunani osongina bering
+                  {t('admin_user_list_desc', 'Har bir foydalanuvchiga Pro yoki VIP obunani osongina bering')}
                 </CardDescription>
               </div>
 
@@ -680,7 +716,7 @@ export const Admin: React.FC = () => {
               <div className="relative w-full md:w-80">
                 <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Email yoki ID bo'yicha qidiruv..."
+                  placeholder={t('admin_search_placeholder', "Email yoki ID bo'yicha qidiruv...")}
                   className="pl-9 pr-4 bg-background/80 rounded-xl"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -693,19 +729,20 @@ export const Admin: React.FC = () => {
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/30">
-                      <TableHead className="font-bold">Foydalanuvchi Email</TableHead>
-                      <TableHead className="font-bold">User UID</TableHead>
-                      <TableHead className="font-bold">Hozirgi Obuna</TableHead>
-                      <TableHead className="font-bold">Berilgan Sana & To'lov Kuni (kun/oy/yil)</TableHead>
-                      <TableHead className="font-bold text-center">Obunani Boshqarish</TableHead>
-                      <TableHead className="font-bold text-right">Ogohlantirish</TableHead>
+                      <TableHead className="font-bold">{t('admin_th_email', 'Foydalanuvchi Email')}</TableHead>
+                      <TableHead className="font-bold">{t('admin_th_terms', 'Shartlarga Rozilik (No Refund)')}</TableHead>
+                      <TableHead className="font-bold">{t('admin_th_uid', 'User UID')}</TableHead>
+                      <TableHead className="font-bold">{t('admin_th_plan', 'Hozirgi Obuna')}</TableHead>
+                      <TableHead className="font-bold">{t('admin_th_dates', "Berilgan Sana & To'lov Kuni (kun/oy/yil)")}</TableHead>
+                      <TableHead className="font-bold text-center">{t('admin_th_manage', 'Obunani Boshqarish')}</TableHead>
+                      <TableHead className="font-bold text-right">{t('admin_th_notify', 'Ogohlantirish')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredProfiles.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
-                          {searchQuery ? "Qidiruvga mos foydalanuvchi topilmadi" : "Hali foydalanuvchilar yo'q"}
+                        <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                          {searchQuery ? t('admin_search_empty', "Qidiruvga mos foydalanuvchi topilmadi") : t('admin_no_users', "Hali foydalanuvchilar yo'q")}
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -726,6 +763,26 @@ export const Admin: React.FC = () => {
                                     Admin
                                   </Badge>
                                 )}
+                              </div>
+                            </TableCell>
+
+                            {/* Terms Agreement Column */}
+                            <TableCell>
+                              <div className="flex flex-col gap-1">
+                                <div className="flex items-center gap-1.5">
+                                  <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-[11px] font-semibold px-2 py-0.5 gap-1.5 shadow-xs">
+                                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                                    <span>Rozi bo'lgan (No Refund)</span>
+                                  </Badge>
+                                </div>
+                                <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                                  <Calendar className="w-3 h-3 text-muted-foreground/70 shrink-0" />
+                                  <span>
+                                    {p.termsAgreedAt 
+                                      ? new Date(p.termsAgreedAt).toLocaleDateString('uz-UZ', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) 
+                                      : (p.createdAt ? new Date(p.createdAt).toLocaleDateString('uz-UZ') : "Ro'yxatdan o'tishda")}
+                                  </span>
+                                </span>
                               </div>
                             </TableCell>
 

@@ -58,6 +58,13 @@ setPersistence(auth, browserLocalPersistence).catch(() => {
 });
 
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.addScope('email');
+googleProvider.addScope('profile');
+googleProvider.addScope('openid');
+googleProvider.setCustomParameters({
+  prompt: 'select_account'
+});
+
 export const githubProvider = new GithubAuthProvider();
 githubProvider.addScope('repo');
 githubProvider.addScope('read:user');

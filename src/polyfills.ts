@@ -295,4 +295,75 @@
       clearTimeout(id);
     };
   }
+
+  // 15. CSS Cascade Layers (@layer) Unwrapper for Legacy Browsers (Chrome < 99, Android 5/6 WebView)
+  if (typeof (window as any).CSSLayerBlockRule === 'undefined') {
+    const unwrapCss = (css: string): string => {
+      if (!css || css.indexOf('@layer') === -1) return css;
+      const res = css.replace(/@layer\s+[^;{]+;/g, '');
+      const out: string[] = [];
+      let i = 0;
+      const n = res.length;
+      while (i < n) {
+        if (res.indexOf('@layer', i) === i) {
+          const b = res.indexOf('{', i);
+          if (b !== -1) {
+            let depth = 1;
+            let j = b + 1;
+            while (j < n && depth > 0) {
+              const c = res.charAt(j);
+              if (c === '{') depth++;
+              else if (c === '}') depth--;
+              j++;
+            }
+            if (depth === 0) {
+              out.push(unwrapCss(res.slice(b + 1, j - 1)));
+              i = j;
+              continue;
+            }
+          }
+        }
+        out.push(res.charAt(i));
+        i++;
+      }
+      return out.join('');
+    };
+
+    const processAllStyles = () => {
+      const styles = document.querySelectorAll('style');
+      styles.forEach((s) => {
+        if (!(s as any).__unwrapped && s.textContent && s.textContent.indexOf('@layer') !== -1) {
+          (s as any).__unwrapped = true;
+          s.textContent = unwrapCss(s.textContent);
+        }
+      });
+    };
+
+    processAllStyles();
+    if (typeof MutationObserver !== 'undefined') {
+      const obs = new MutationObserver(() => processAllStyles());
+      obs.observe(document.documentElement, { childList: true, subtree: true });
+    }
+    const timer = setInterval(processAllStyles, 500);
+    setTimeout(() => clearInterval(timer), 10000);
+  }
+
+  // 16. CSS Custom Properties (Variables) Ponyfill for Chrome < 49
+  const supportsNativeVars = window.CSS && typeof window.CSS.supports === 'function' && window.CSS.supports('(--foo: red)');
+  if (!supportsNativeVars) {
+    import('css-vars-ponyfill')
+      .then((mod) => {
+        const cssVars = mod.default || mod;
+        if (typeof cssVars === 'function') {
+          cssVars({
+            watch: true,
+            onlyLegacy: true,
+            shadowDOM: false,
+          });
+        }
+      })
+      .catch((e) => {
+        console.warn('[css-vars-ponyfill error]:', e);
+      });
+  }
 })();

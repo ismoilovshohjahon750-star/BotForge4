@@ -6,6 +6,8 @@ export interface Profile {
   id: string;
   email: string;
   createdAt: string;
+  agreedToTerms?: boolean;
+  termsAgreedAt?: string;
 }
 
 export interface UserRole {

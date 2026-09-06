@@ -15,9 +15,11 @@ import { toast } from 'sonner';
 import {Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger} from '../components/ui/dialog';
 import { Input } from '../components/ui/input';
 import { handleFirestoreError, OperationType } from '../lib/firestore-utils';
+import { useTranslation } from '../context/LanguageContext';
 
 export const Dashboard: React.FC = () => {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [bots, setBots] = useState<Bot[]>([]);
   const [loading, setLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
@@ -995,20 +997,20 @@ export const Dashboard: React.FC = () => {
 
       <div className="flex justify-between items-end mb-8">
         <div>
-          <h1 className="text-3xl font-bold">Boshqaruv Paneli</h1>
-          <p className="text-muted-foreground mt-1">Barcha botlaringiz va ularning holati</p>
+          <h1 className="text-3xl font-bold">{t('dash_title', 'Boshqaruv Paneli')}</h1>
+          <p className="text-muted-foreground mt-1">{t('dash_subtitle', 'Barcha botlaringiz va ularning holati')}</p>
         </div>
         
         <Dialog>
           <DialogTrigger render={<Button className="gap-2 rounded-xl" />}>
             <Plus className="w-4 h-4" />
-            Yangi Bot
+            {t('dash_newBot', 'Yangi Bot')}
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Yangi Bot Qo'shish</DialogTitle>
+              <DialogTitle>{t('dash_addNewBot', "Yangi Bot Qo'shish")}</DialogTitle>
               <DialogDescription>
-                Yangi botni yuklash usulini tanlang.
+                {t('dash_selectMethod', 'Yangi botni yuklash usulini tanlang.')}
               </DialogDescription>
             </DialogHeader>
 
@@ -1020,13 +1022,13 @@ export const Dashboard: React.FC = () => {
             )}
             <Tabs defaultValue="upload" className="w-full">
               <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="upload">Zip Fayl</TabsTrigger>
+                <TabsTrigger value="upload">{t('dash_zipFile', 'Zip Fayl')}</TabsTrigger>
                 <TabsTrigger value="github">GitHub</TabsTrigger>
               </TabsList>
               <TabsContent value="upload">
                 <form onSubmit={handleUpload} className="space-y-4 pt-4">
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Bot nomi</label>
+                    <label className="text-sm font-medium">{t('dash_botName', 'Bot nomi')}</label>
                     <Input 
                       placeholder="Mening Botim" 
                       value={uploadName} 
@@ -1035,7 +1037,7 @@ export const Dashboard: React.FC = () => {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Zip fayl</label>
+                    <label className="text-sm font-medium">{t('dash_zipFile', 'Zip fayl')}</label>
                     <div className="border-2 border-dashed rounded-xl p-8 text-center hover:bg-primary/5 transition-colors cursor-pointer relative">
                       <input 
                         type="file" 
@@ -1045,12 +1047,12 @@ export const Dashboard: React.FC = () => {
                       />
                       <FileUp className="w-10 h-10 text-muted-foreground mx-auto mb-2" />
                       <p className="text-sm text-muted-foreground">
-                        {file ? file.name : "Faylni tanlang yoki shu yerga tashlang"}
+                        {file ? file.name : t('dash_dropFile', 'Faylni tanlang yoki shu yerga tashlang')}
                       </p>
                     </div>
                   </div>
                   <Button type="submit" className="w-full" disabled={isUploading || bots.length >= maxBotsAllowed}>
-                    {bots.length >= maxBotsAllowed ? `Limitga yetdingiz (${bots.length}/${maxBotsAllowed})` : isUploading ? "Yuklanmoqda..." : "Yuklash va Tekshirish"}
+                    {bots.length >= maxBotsAllowed ? `Limitga yetdingiz (${bots.length}/${maxBotsAllowed})` : isUploading ? t('dash_uploading', 'Yuklanmoqda...') : t('dash_uploadAndCheck', 'Yuklash va Tekshirish')}
                   </Button>
                 </form>
               </TabsContent>
@@ -1257,19 +1259,19 @@ export const Dashboard: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Card>
             <CardHeader className="pb-2">
-              <CardDescription>Jami Botlar</CardDescription>
+              <CardDescription>{t('dash_totalBots', 'Jami Botlar')}</CardDescription>
               <CardTitle className="text-2xl">{bots.length}</CardTitle>
             </CardHeader>
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardDescription>Ishlayotgan</CardDescription>
+              <CardDescription>{t('dash_running', 'Ishlayotgan')}</CardDescription>
               <CardTitle className="text-2xl text-primary">{bots.filter(b => b.status === 'running').length}</CardTitle>
             </CardHeader>
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardDescription>To'xtatilgan</CardDescription>
+              <CardDescription>{t('dash_stopped', "To'xtatilgan")}</CardDescription>
               <CardTitle className="text-2xl">{bots.filter(b => b.status === 'stopped').length}</CardTitle>
             </CardHeader>
           </Card>
@@ -1277,24 +1279,24 @@ export const Dashboard: React.FC = () => {
 
         <Card>
           <CardHeader>
-            <CardTitle>Botlar Ro'yxati</CardTitle>
+            <CardTitle>{t('dash_botsList', "Botlar Ro'yxati")}</CardTitle>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Nomi</TableHead>
-                  <TableHead>Til</TableHead>
-                  <TableHead>Holat</TableHead>
-                  <TableHead>Uptime</TableHead>
-                  <TableHead className="text-right">Harakatlar</TableHead>
+                  <TableHead>{t('dash_colName', 'Nomi')}</TableHead>
+                  <TableHead>{t('dash_colLang', 'Til')}</TableHead>
+                  <TableHead>{t('dash_colStatus', 'Holat')}</TableHead>
+                  <TableHead>{t('dash_colUptime', 'Uptime')}</TableHead>
+                  <TableHead className="text-right">{t('dash_colActions', 'Harakatlar')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {bots.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
-                      Sizda hali botlar yo'q
+                      {t('dash_noBots', "Sizda hali botlar yo'q")}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -1309,7 +1311,7 @@ export const Dashboard: React.FC = () => {
                       <TableCell>
                         <Badge variant={bot.status === 'running' ? 'default' : 'secondary'} className="gap-1">
                           <span className={`w-1.5 h-1.5 rounded-full ${bot.status === 'running' ? 'bg-primary-foreground animate-pulse' : 'bg-muted-foreground'}`} />
-                          {bot.status === 'running' ? 'Ishlayapti' : 'To\'xtatilgan'}
+                          {bot.status === 'running' ? t('dash_statusRunning', 'Ishlayapti') : t('dash_statusStopped', "To'xtatilgan")}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground font-mono">
@@ -1324,7 +1326,7 @@ export const Dashboard: React.FC = () => {
                             size="icon" 
                             variant="outline" 
                             onClick={() => openBotLogs(bot)} 
-                            title="Real-vaqt holati va live loglar"
+                            title={t('dash_live_logs', 'Real-vaqt holati va live loglar')}
                             className="relative text-zinc-400 hover:text-emerald-400 border-zinc-800 hover:border-emerald-500/50 hover:bg-emerald-950/30 transition-all group"
                           >
                             <Activity className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
@@ -1339,7 +1341,7 @@ export const Dashboard: React.FC = () => {
                             size="icon" 
                             variant="outline" 
                             onClick={() => openEnvModal(bot)} 
-                            title="Bot Token va Env Sozlamalari (.env)"
+                            title={t('dash_env_settings', 'Bot Token va Env Sozlamalari (.env)')}
                             className="text-zinc-400 hover:text-amber-400 border-zinc-800 hover:border-amber-500/50 hover:bg-amber-950/30 transition-all"
                           >
                             <Key className="w-4 h-4 text-amber-400" />
@@ -1348,15 +1350,27 @@ export const Dashboard: React.FC = () => {
                             size="icon" 
                             variant="outline" 
                             onClick={() => restartBot(bot)} 
-                            title="Qayta ishga tushirish (Re-deploy)"
+                            title={t('dash_restart', 'Qayta ishga tushirish (Re-deploy)')}
                             className="text-zinc-400 hover:text-blue-400 border-zinc-800 hover:bg-blue-950/30"
                           >
                             <RefreshCcw className="w-4 h-4" />
                           </Button>
-                          <Button size="icon" variant="outline" onClick={() => toggleBot(bot)} title={bot.status === 'running' ? "To'xtatish" : "Ishga tushirish"} className="border-zinc-800">
+                          <Button 
+                            size="icon" 
+                            variant="outline" 
+                            onClick={() => toggleBot(bot)} 
+                            title={bot.status === 'running' ? t('dash_stop', "To'xtatish") : t('dash_start', 'Ishga tushirish')} 
+                            className="border-zinc-800"
+                          >
                             {bot.status === 'running' ? <Square className="w-4 h-4 fill-current text-red-500" /> : <Play className="w-4 h-4 fill-current text-emerald-500" />}
                           </Button>
-                          <Button size="icon" variant="outline" onClick={() => openDeleteModal(bot)} title="Botni o'chirish" className="text-zinc-400 hover:text-red-400 border-zinc-800">
+                          <Button 
+                            size="icon" 
+                            variant="outline" 
+                            onClick={() => openDeleteModal(bot)} 
+                            title={t('dash_delete', "Botni o'chirish")} 
+                            className="text-zinc-400 hover:text-red-400 border-zinc-800"
+                          >
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         </div>
@@ -1692,15 +1706,15 @@ export const Dashboard: React.FC = () => {
                 <Trash2 className="w-6 h-6 text-red-400" />
               </div>
               <div>
-                <h3 className="font-bold text-lg text-zinc-100">Botni o'chirish</h3>
-                <p className="text-xs text-zinc-400">Ushbu amalni ortga qaytarib bo'lmaydi</p>
+                <h3 className="font-bold text-lg text-zinc-100">{t('delete_bot_title', "Botni o'chirish")}</h3>
+                <p className="text-xs text-zinc-400">{t('delete_bot_subtitle', "Ushbu amalni ortga qaytarib bo'lmaydi")}</p>
               </div>
             </div>
 
             <div className="bg-zinc-900/60 p-3.5 rounded-xl border border-zinc-800 text-sm space-y-1.5">
-              <div className="text-xs text-zinc-400">O'chirilayotgan bot:</div>
+              <div className="text-xs text-zinc-400">{t('delete_bot_target', "O'chirilayotgan bot:")}</div>
               <div className="font-bold text-zinc-100 text-base">
-                {botToDelete.name || 'Nom berilmagan bot'}
+                {botToDelete.name || t('delete_unnamed_bot', 'Nom berilmagan bot')}
               </div>
               <div className="font-mono text-xs text-zinc-400">
                 ID: {botToDelete.id}
@@ -1708,7 +1722,7 @@ export const Dashboard: React.FC = () => {
             </div>
 
             <p className="text-xs text-zinc-400 leading-relaxed">
-              Diqqat: Bot va uning serverdagi barcha fayllari hamda ma'lumotlar bazasidagi yozuvlari to'liq o'chirib tashlanadi.
+              {t('delete_bot_warning', "Diqqat: Bot va uning serverdagi barcha fayllari hamda ma'lumotlar bazasidagi yozuvlari to'liq o'chirib tashlanadi.")}
             </p>
 
             <div className="flex items-center justify-end gap-3 pt-2">
@@ -1718,7 +1732,7 @@ export const Dashboard: React.FC = () => {
                 disabled={isDeleting}
                 className="border-zinc-800 text-zinc-300 hover:bg-zinc-900"
               >
-                Bekor qilish
+                {t('modal_cancel', 'Bekor qilish')}
               </Button>
               <Button
                 variant="destructive"
@@ -1727,7 +1741,7 @@ export const Dashboard: React.FC = () => {
                 disabled={isDeleting}
               >
                 <Trash2 className="w-4 h-4" />
-                {isDeleting ? "O'chirilmoqda..." : "Ha, o'chirilsin"}
+                {isDeleting ? t('deleting_bot', "O'chirilmoqda...") : t('confirm_delete_btn', "Ha, o'chirilsin")}
               </Button>
             </div>
           </div>

@@ -1,5 +1,14 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { onAuthStateChanged, User, signInWithPopup, signInWithRedirect, getRedirectResult, signOut } from 'firebase/auth';
+import { 
+  onAuthStateChanged, 
+  User, 
+  signInWithPopup, 
+  signInWithRedirect, 
+  getRedirectResult, 
+  signOut,
+  signInWithCredential,
+  GoogleAuthProvider 
+} from 'firebase/auth';
 import { auth, googleProvider } from '../lib/firebase';
 import { doc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { safeSetDoc } from '../lib/safeFirestore';
@@ -11,6 +20,7 @@ interface AuthContextType {
   loading: boolean;
   isAdmin: boolean;
   login: () => Promise<void>;
+  loginWithGoogleCredential: (idToken: string) => Promise<User>;
   logout: () => Promise<void>;
 }
 
@@ -41,7 +51,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const token = await user.getIdToken();
             fetch('/api/auth/sync', {
               method: 'POST',
-              headers: { 'Authorization': `Bearer ${token}` }
+              headers: { 
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ agreedToTerms: true, termsAgreedAt: new Date().toISOString() })
             }).catch(() => {});
 
             const profileRef = doc(db, 'profiles', user.uid);
@@ -53,6 +67,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               displayName: user.displayName || username,
               username: username.toLowerCase(),
               photoURL: photoURL,
+              agreedToTerms: true,
+              termsAgreedAt: new Date().toISOString(),
               updatedAt: serverTimestamp()
             }, { merge: true });
 
@@ -100,12 +116,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const loginWithGoogleCredential = async (idToken: string): Promise<User> => {
+    try {
+      setIsAuthenticating(true);
+      setLoading(true);
+      const credential = GoogleAuthProvider.credential(idToken);
+      const res = await signInWithCredential(auth, credential);
+      return res.user;
+    } finally {
+      setIsAuthenticating(false);
+      setLoading(false);
+    }
+  };
+
   const logout = async () => {
     await signOut(auth);
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, isAdmin, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, isAdmin, login, loginWithGoogleCredential, logout }}>
       {children}
     </AuthContext.Provider>
   );

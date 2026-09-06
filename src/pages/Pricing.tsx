@@ -28,6 +28,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
+import { useTranslation } from '../context/LanguageContext';
 
 interface Plan {
   id: 'free' | 'pro' | 'vip';
@@ -41,6 +42,7 @@ interface Plan {
 
 export const Pricing: React.FC = () => {
   const { user, login } = useAuth();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [userTier, setUserTier] = useState<string>('free');
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
@@ -54,74 +56,74 @@ export const Pricing: React.FC = () => {
   const plans: Plan[] = [
     {
       id: 'free',
-      name: "Bepul",
+      name: t('plan_free_name', "Bepul"),
       price: "$0",
-      desc: "Yangi boshlovchilar va sinov uchun",
+      desc: t('plan_free_desc', "Yangi boshlovchilar va sinov uchun"),
       features: [
-        "2 tagacha bot joylashtirish",
-        "Botlar 2 oy ishlab beradi",
-        "Ish vaqti: 07:25 dan 21:00 gacha (O'zb vaqti)",
-        "Botly AI limiti: 45 tokin/kuniga",
-        "Avtomatik ertalabki tiklanish",
-        "Standart qo'llab-quvvatlash"
+        t('plan_free_f1', "2 tagacha bot joylashtirish"),
+        t('plan_free_f2', "Botlar 2 oy ishlab beradi"),
+        t('plan_free_f3', "Ish vaqti: 07:25 dan 21:00 gacha (O'zb vaqti)"),
+        t('plan_free_f4', "Botly AI limiti: 45 tokin/kuniga"),
+        t('plan_free_f5', "Avtomatik ertalabki tiklanish"),
+        t('plan_free_f6', "Standart qo'llab-quvvatlash")
       ],
-      button: "Hozir boshlang",
+      button: t('pricing_start_now', "Hozir boshlang"),
       popular: false
     },
     {
       id: 'pro',
-      name: "Pro",
+      name: t('plan_pro_name', "Pro"),
       price: "$20",
-      desc: "Kichik biznes va faol loyihalar uchun",
+      desc: t('plan_pro_desc', "Kichik biznes va faol loyihalar uchun"),
       features: [
-        "10 tagacha bot joylashtirish",
-        "Botlar 10 oy davomida kafolatli ishlaydi",
-        "Ish vaqti: 06:30 dan 22:35 gacha (O'zb vaqti)",
-        "Botly AI limiti: 145 tokin/kuniga",
-        "Batafsil terminal loglari va audit",
-        "Prioritet tezkor qo'llab-quvvatlash",
-        "Maxsus webhooklar va ZIP arxiv yuklash",
-        "Kengaytirilgan xotira va CPU resursi"
+        t('plan_pro_f1', "10 tagacha bot joylashtirish"),
+        t('plan_pro_f2', "Botlar 10 oy davomida kafolatli ishlaydi"),
+        t('plan_pro_f3', "Ish vaqti: 06:30 dan 22:35 gacha (O'zb vaqti)"),
+        t('plan_pro_f4', "Botly AI limiti: 145 tokin/kuniga"),
+        t('plan_pro_f5', "Batafsil terminal loglari va audit"),
+        t('plan_pro_f6', "Prioritet tezkor qo'llab-quvvatlash"),
+        t('plan_pro_f7', "Maxsus webhooklar va ZIP arxiv yuklash"),
+        t('plan_pro_f8', "Kengaytirilgan xotira va CPU resursi")
       ],
-      button: "Obuna bo'lish",
+      button: t('pricing_subscribe', "Obuna bo'lish"),
       popular: true
     },
     {
       id: 'vip',
-      name: "VIP",
+      name: t('plan_vip_name', "VIP"),
       price: "$49",
-      desc: "Professional va yirik loyihalar uchun",
+      desc: t('plan_vip_desc', "Professional va yirik loyihalar uchun"),
       features: [
-        "30 tagacha bot joylashtirish",
-        "Botlar cheksiz ravishda ishlab beradi",
-        "Ish vaqti: 04:00 dan 00:00 (yarim kecha) gacha",
-        "Botly AI limiti: 500 tokin/kuniga",
-        "Cheksiz terminal loglari tarixi",
-        "24/7 Shaxsiy Telegram yordamchi",
-        "Maksimal server resurslari va tezkor tarmoq",
-        "Avtomatik xatoliklarni tuzatuvchi sun'iy intellekt"
+        t('plan_vip_f1', "30 tagacha bot joylashtirish"),
+        t('plan_vip_f2', "Botlar cheksiz ravishda ishlab beradi"),
+        t('plan_vip_f3', "Ish vaqti: 04:00 dan 00:00 (yarim kecha) gacha"),
+        t('plan_vip_f4', "Botly AI limiti: 500 tokin/kuniga"),
+        t('plan_vip_f5', "Cheksiz terminal loglari tarixi"),
+        t('plan_vip_f6', "24/7 Shaxsiy Telegram yordamchi"),
+        t('plan_vip_f7', "Maksimal server resurslari va tezkor tarmoq"),
+        t('plan_vip_f8', "Avtomatik xatoliklarni tuzatuvchi sun'iy intellekt")
       ],
-      button: "Obuna bo'lish",
+      button: t('pricing_subscribe', "Obuna bo'lish"),
       popular: false
     }
   ];
 
   const faqs = [
     {
-      q: "Bepul tarifdan qanday foydalanish mumkin?",
-      a: "Bepul tarifni tanlash uchun hech qanday karta yoki to'lov talab qilinmaydi. 'Hozir boshlang' tugmasini bosib to'g'ridan-to'g'ri Dashboardga o'tasiz va darhol o'z botingizni deploy qilishingiz mumkin."
+      q: t('faq_q1', "Bepul tarifdan qanday foydalanish mumkin?"),
+      a: t('faq_a1', "Bepul tarifni tanlash uchun hech qanday karta yoki to'lov talab qilinmaydi. 'Hozir boshlang' tugmasini bosib to'g'ridan-to'g'ri Dashboardga o'tasiz va darhol o'z botingizni deploy qilishingiz mumkin.")
     },
     {
-      q: "Pro yoki VIP tarifga qanday to'lov qilinadi?",
-      a: "Tarif ostidagi 'Obuna bo'lish' tugmasini bosib, telefon raqamingizni yuborsangiz yoki to'g'ridan-to'g'ri @shoh_deweloper telegram profiliga yozsangiz, administrator bir necha daqiqada sizga to'lov rekvizitlarini (Payme / Click / Visa / Kripto) yuboradi va obunangizni faollashtiradi."
+      q: t('faq_q2', "Pro yoki VIP tarifga qanday to'lov qilinadi?"),
+      a: t('faq_a2', "Tarif ostidagi 'Obuna bo'lish' tugmasini bosib, telefon raqamingizni yuborsangiz yoki to'g'ridan-to'g'ri @shoh_deweloper telegram profiliga yozsangiz, administrator bir necha daqiqada sizga to'lov rekvizitlarini (Payme / Click / Visa / Kripto) yuboradi va obunangizni faollashtiradi.")
     },
     {
-      q: "Botlarim qanday texnologiyalarda ishlaydi?",
-      a: "CloudBot platformasi Python (Aiogram 3, Telebot, Python-Telegram-Bot) va Node.js (Telegraf, Grammy) texnologiyalarini to'liq qo'llab-quvvatlaydi. Muhitlar izolyatsiyalangan holda 24/7 ishlaydi."
+      q: t('faq_q3', "Botlarim qanday texnologiyalarda ishlaydi?"),
+      a: t('faq_a3', "CloudBot platformasi Python (Aiogram 3, Telebot, Python-Telegram-Bot) va Node.js (Telegraf, Grammy) texnologiyalarini to'liq qo'llab-quvvatlaydi. Muhitlar izolyatsiyalangan holda 24/7 ishlaydi.")
     },
     {
-      q: "Botly AI tokenlari nima uchun kerak?",
-      a: "Botly AI — bu siz uchun Python/Node.js bot kodlarini generatsiya qilib beruvchi, xatoliklarni avtomatik tuzatuvchi va savollaringizga javob beruvchi maxsus aqlli yordamchidir."
+      q: t('faq_q4', "Botly AI tokenlari nima uchun kerak?"),
+      a: t('faq_a4', "Botly AI — bu siz uchun Python/Node.js bot kodlarini generatsiya qilib beruvchi, xatoliklarni avtomatik tuzatuvchi va savollaringizga javob beruvchi maxsus aqlli yordamchidir.")
     }
   ];
 
@@ -219,13 +221,13 @@ export const Pricing: React.FC = () => {
       <div className="text-center mb-16 max-w-3xl mx-auto space-y-4">
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-semibold uppercase tracking-wider">
           <Zap className="w-3.5 h-3.5" />
-          <span>Shaffof va Qulay Tariflar</span>
+          <span>{t('pricing_title', 'Shaffof va Qulay Tariflar')}</span>
         </div>
         <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight text-white">
-          Sizga mos tarif rejasini tanlang
+          {t('pricing_title', 'Sizga mos tarif rejasini tanlang')}
         </h1>
         <p className="text-slate-400 text-sm md:text-base leading-relaxed">
-          Bepul boshlang yoki loyihangiz ko'lamiga qarab yuqori quvvatli server va kengaytirilgan Botly AI imkoniyatlarini faollashtiring.
+          {t('pricing_subtitle', "O'zingizga mos tarifni tanlang va botlaringizni 24/7 uzluksiz ishga tushiring")}
         </p>
       </div>
 
@@ -247,7 +249,7 @@ export const Pricing: React.FC = () => {
               {plan.popular && (
                 <div className="absolute -top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 bg-gradient-to-r from-primary to-indigo-600 text-white text-xs font-bold rounded-full shadow-xl flex items-center gap-1.5 whitespace-nowrap z-30 border border-white/20">
                   <Sparkles className="w-3.5 h-3.5" />
-                  <span>ENG OMMABOP</span>
+                  <span>{t('pricing_popular_badge', 'ENG OMMABOP')}</span>
                 </div>
               )}
 
@@ -258,7 +260,7 @@ export const Pricing: React.FC = () => {
                   </CardTitle>
                   {isCurrentPlan && (
                     <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                      Joriy Tarif
+                      {t('pricing_current_plan', 'Joriy Tarif')}
                     </span>
                   )}
                 </div>
@@ -270,12 +272,14 @@ export const Pricing: React.FC = () => {
               <CardContent className="flex-1 space-y-6">
                 <div className="flex items-baseline gap-1.5 border-b border-white/5 pb-6">
                   <span className="text-4xl md:text-5xl font-extrabold text-white">{plan.price}</span>
-                  <span className="text-slate-400 text-sm">{isFree ? '/abadiy' : '/oyiga'}</span>
+                  <span className="text-slate-400 text-sm">
+                    {isFree ? t('pricing_per_forever', '/abadiy') : t('pricing_per_month', '/oyiga')}
+                  </span>
                 </div>
 
                 <div className="space-y-3">
                   <p className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                    Tarif imkoniyatlari:
+                    {t('pricing_features_header', 'Tarif imkoniyatlari:')}
                   </p>
                   <ul className="space-y-3">
                     {plan.features.map((f, j) => (
@@ -324,8 +328,8 @@ export const Pricing: React.FC = () => {
             <Clock className="w-5 h-5" />
           </div>
           <div>
-            <h4 className="text-xs font-semibold text-white">24/7 Ishonchli Uptime</h4>
-            <p className="text-[11px] text-slate-400">Botlaringiz hech qachon to'xtamaydi</p>
+            <h4 className="text-xs font-semibold text-white">{t('trust_uptime_title', '24/7 Ishonchli Uptime')}</h4>
+            <p className="text-[11px] text-slate-400">{t('trust_uptime_desc', "Botlaringiz hech qachon to'xtamaydi")}</p>
           </div>
         </div>
 
@@ -334,8 +338,8 @@ export const Pricing: React.FC = () => {
             <ShieldCheck className="w-5 h-5" />
           </div>
           <div>
-            <h4 className="text-xs font-semibold text-white">Kafolatlangan Xavfsizlik</h4>
-            <p className="text-[11px] text-slate-400">Ma'lumotlar va maxfiy kalitlar himoyasi</p>
+            <h4 className="text-xs font-semibold text-white">{t('trust_sec_title', 'Kafolatlangan Xavfsizlik')}</h4>
+            <p className="text-[11px] text-slate-400">{t('trust_sec_desc', "Ma'lumotlar va maxfiy kalitlar himoyasi")}</p>
           </div>
         </div>
 
@@ -344,8 +348,8 @@ export const Pricing: React.FC = () => {
             <Cpu className="w-5 h-5" />
           </div>
           <div>
-            <h4 className="text-xs font-semibold text-white">Botly AI Integratsiyasi</h4>
-            <p className="text-[11px] text-slate-400">Kod tuzatish va generatsiya yordamchisi</p>
+            <h4 className="text-xs font-semibold text-white">{t('trust_ai_title', 'Botly AI Integratsiyasi')}</h4>
+            <p className="text-[11px] text-slate-400">{t('trust_ai_desc', 'Kod tuzatish va generatsiya yordamchisi')}</p>
           </div>
         </div>
       </div>
@@ -353,8 +357,8 @@ export const Pricing: React.FC = () => {
       {/* FAQ Section */}
       <div className="mt-24 max-w-3xl mx-auto">
         <div className="text-center mb-10 space-y-2">
-          <h3 className="text-2xl md:text-3xl font-bold text-white">Ko'p beriladigan savollar</h3>
-          <p className="text-xs md:text-sm text-slate-400">Tariflar va platforma bo'yicha eng muhim ma'lumotlar</p>
+          <h3 className="text-2xl md:text-3xl font-bold text-white">{t('faq_section_title', "Ko'p beriladigan savollar")}</h3>
+          <p className="text-xs md:text-sm text-slate-400">{t('faq_section_subtitle', "Tariflar va platforma bo'yicha eng muhim ma'lumotlar")}</p>
         </div>
 
         <div className="space-y-3">
@@ -390,9 +394,9 @@ export const Pricing: React.FC = () => {
       {/* Direct Telegram Support Banner */}
       <div className="mt-16 p-6 rounded-2xl bg-gradient-to-r from-indigo-950/40 via-purple-950/20 to-slate-900 border border-indigo-500/20 max-w-3xl mx-auto text-center space-y-4">
         <div className="space-y-1">
-          <h4 className="text-lg font-bold text-white">Yordam yoki maxsus taklif kerakmi?</h4>
+          <h4 className="text-lg font-bold text-white">{t('support_title', 'Bot sozlashda yordam kerakmi?')}</h4>
           <p className="text-xs text-slate-300">
-            Administrator bilan to'g'ridan-to'g'ri Telegram orqali bog'lanishingiz mumkin.
+            {t('support_desc', "Administrator bilan to'g'ridan-to'g'ri Telegram orqali bog'lanishingiz mumkin.")}
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-center gap-3">
@@ -403,7 +407,7 @@ export const Pricing: React.FC = () => {
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-xs font-semibold transition-colors shadow-lg shadow-sky-950/50"
           >
             <Send className="w-3.5 h-3.5" />
-            <span>Telegram: @shoh_deweloper</span>
+            <span>{t('support_btn', '@shoh_deweloper ga yozish')}</span>
             <ExternalLink className="w-3.5 h-3.5 opacity-70" />
           </a>
         </div>
@@ -427,9 +431,9 @@ export const Pricing: React.FC = () => {
                     <Sparkles className="w-5 h-5" />
                   </div>
                   <div>
-                    <h2 className="text-xl font-bold tracking-tight text-white">Obuna va Xabar Yuborish</h2>
+                    <h2 className="text-xl font-bold tracking-tight text-white">{t('modal_sub_title', 'Obuna va Xabar Yuborish')}</h2>
                     <p className="text-xs text-slate-400">
-                      <span className="font-semibold text-primary">{selectedPlan.name}</span> ({selectedPlan.price}/oy) tarifi bo'yicha administratorga murojaat
+                      <span className="font-semibold text-primary">{selectedPlan.name}</span> ({selectedPlan.price}/oy) {t('modal_sub_desc', "tarifi bo'yicha administratorga murojaat")}
                     </p>
                   </div>
                 </div>
@@ -447,7 +451,7 @@ export const Pricing: React.FC = () => {
               <div className="px-6 py-3 bg-primary/5 border-b border-white/10 flex items-center justify-between text-xs font-medium">
                 <span className="flex items-center gap-1.5 text-primary">
                   <ShieldCheck className="w-4 h-4" />
-                  Murojaatingiz bevosita administratsiyaga yetkaziladi
+                  {t('modal_sub_direct', 'Murojaatingiz bevosita administratsiyaga yetkaziladi')}
                 </span>
                 <span className="bg-primary/20 text-primary px-2.5 py-0.5 rounded-full font-bold">
                   {selectedPlan.name} - {selectedPlan.price}
@@ -459,7 +463,7 @@ export const Pricing: React.FC = () => {
                 {/* Name field */}
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
-                    Ismingiz
+                    {t('modal_name_label', 'Ismingiz')}
                   </label>
                   <div className="relative">
                     <User className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
@@ -467,7 +471,7 @@ export const Pricing: React.FC = () => {
                       type="text"
                       value={name}
                       onChange={(e) => setName(e.target.value)}
-                      placeholder="Ismingizni kiriting"
+                      placeholder={t('modal_name_placeholder', 'Ismingizni kiriting')}
                       className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-white/10 bg-black/40 text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                       required
                     />
@@ -477,8 +481,8 @@ export const Pricing: React.FC = () => {
                 {/* Mandatory Phone field */}
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5 flex items-center justify-between">
-                    <span>Telefon raqamingiz</span>
-                    <span className="text-rose-400 font-bold">* Majburiy</span>
+                    <span>{t('modal_phone_label', 'Telefon raqamingiz')}</span>
+                    <span className="text-rose-400 font-bold">{t('modal_required', '* Majburiy')}</span>
                   </label>
                   <div className="relative">
                     <PhoneCall className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
@@ -496,13 +500,13 @@ export const Pricing: React.FC = () => {
                 {/* Message Textarea */}
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
-                    Xabaringiz
+                    {t('modal_msg_label', 'Xabaringiz')}
                   </label>
                   <textarea
                     rows={4}
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
-                    placeholder="Xabaringiz va obuna bo'yicha istaklaringizni shu yerga yozing..."
+                    placeholder={t('modal_msg_placeholder', "Xabaringiz va obuna bo'yicha istaklaringizni shu yerga yozing...")}
                     className="w-full p-3 rounded-xl border border-white/10 bg-black/40 text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
                     required
                   />
@@ -516,7 +520,7 @@ export const Pricing: React.FC = () => {
                     onClick={() => setIsModalOpen(false)}
                     className="rounded-xl text-slate-400 hover:text-white"
                   >
-                    Bekor qilish
+                    {t('modal_cancel', 'Bekor qilish')}
                   </Button>
                   <Button
                     type="submit"
@@ -526,12 +530,12 @@ export const Pricing: React.FC = () => {
                     {sending ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Yuborilmoqda...</span>
+                        <span>{t('modal_sending', 'Yuborilmoqda...')}</span>
                       </>
                     ) : (
                       <>
                         <Send className="w-4 h-4" />
-                        <span>Xabarni Yuborish</span>
+                        <span>{t('modal_send_btn', 'Xabarni Yuborish')}</span>
                       </>
                     )}
                   </Button>

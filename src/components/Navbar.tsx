@@ -7,9 +7,12 @@ import { Bot, LogOut, LayoutDashboard, ShieldCheck, Menu, X, Coins, LogIn, Messa
 import { motion, AnimatePresence } from 'motion/react';
 import { LogoFull } from './Logo';
 import { NotificationBell } from './NotificationBell';
+import { LanguageSelector } from './LanguageSelector';
+import { useTranslation } from '../context/LanguageContext';
 
 export const Navbar: React.FC = () => {
   const { user, isAdmin, logout, login } = useAuth();
+  const { t, currentLang } = useTranslation();
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -40,21 +43,31 @@ export const Navbar: React.FC = () => {
           <LogoFull size={26} showSub={false} />
         </Link>
 
-        {/* Right side controls (NotificationBell & Hamburger) */}
-        <div className="flex items-center gap-3 z-50">
+        {/* Right side controls (Language quick switch, NotificationBell & Hamburger) */}
+        <div className="flex items-center gap-2 sm:gap-3 z-50">
+          <button
+            type="button"
+            onClick={toggleMenu}
+            className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl border border-zinc-700/80 bg-zinc-900/90 hover:bg-zinc-800 text-zinc-200 text-xs font-semibold cursor-pointer transition-all shadow-sm"
+            title={t('nav_languageSettings', 'Til sozlamalari')}
+          >
+            <span className="text-base leading-none">{currentLang.flag}</span>
+            <span className="hidden xs:inline-block text-[11px] font-bold text-zinc-300 uppercase">{currentLang.badge}</span>
+          </button>
+
           {user && <NotificationBell />}
           <button
             type="button"
             onClick={toggleMenu}
             className="p-2.5 rounded-xl border border-zinc-700 bg-zinc-900 hover:bg-zinc-800 active:bg-zinc-800 transition-all text-white focus:outline-none flex items-center gap-2 shadow-sm cursor-pointer"
-            aria-label="Menyuni ochish/yopish"
+            aria-label={t('nav_menu', 'Menyu')}
           >
             {isOpen ? (
               <X className="w-5 h-5 text-emerald-400" />
             ) : (
               <>
                 <Menu className="w-5 h-5 text-zinc-200" />
-                <span className="text-xs font-semibold hidden sm:inline-block pr-1 text-zinc-200">Menyu</span>
+                <span className="text-xs font-semibold hidden sm:inline-block pr-1 text-zinc-200">{t('nav_menu', 'Menyu')}</span>
               </>
             )}
           </button>
@@ -108,8 +121,8 @@ export const Navbar: React.FC = () => {
                           type="button"
                           onClick={handleLogout}
                           className="p-2.5 rounded-xl hover:bg-red-500/15 text-red-400 transition-colors shrink-0 ml-1 cursor-pointer"
-                          title="Chiqish"
-                          aria-label="Chiqish"
+                          title={t('nav_logout', 'Chiqish')}
+                          aria-label={t('nav_logout', 'Chiqish')}
                         >
                           <LogOut className="w-5 h-5" />
                         </button>
@@ -122,7 +135,7 @@ export const Navbar: React.FC = () => {
                       className="flex items-center gap-3 py-3 px-4 rounded-xl hover:bg-zinc-800 text-zinc-200 hover:text-emerald-400 transition-all text-sm font-medium"
                     >
                       <Coins className="w-4 h-4 text-emerald-400" />
-                      <span>Narxlar</span>
+                      <span>{t('nav_pricing', 'Narxlar')}</span>
                     </Link>
 
                     <Link
@@ -131,7 +144,7 @@ export const Navbar: React.FC = () => {
                       className="flex items-center gap-3 py-3 px-4 rounded-xl hover:bg-zinc-800 text-zinc-200 hover:text-emerald-400 transition-all text-sm font-medium"
                     >
                       <Bot className="w-4 h-4 text-emerald-400" />
-                      <span>Botly AI</span>
+                      <span>{t('nav_botlyAi', 'Botly AI')}</span>
                     </Link>
 
                     {user ? (
@@ -142,7 +155,7 @@ export const Navbar: React.FC = () => {
                           className="flex items-center gap-3 py-3 px-4 rounded-xl hover:bg-zinc-800 text-zinc-200 hover:text-emerald-400 transition-all text-sm font-medium"
                         >
                           <LayoutDashboard className="w-4 h-4 text-emerald-400" />
-                          <span>Dashboard Panel</span>
+                          <span>{t('nav_dashboard', 'Dashboard Panel')}</span>
                         </Link>
 
                         <Link
@@ -151,7 +164,7 @@ export const Navbar: React.FC = () => {
                           className="flex items-center gap-3 py-3 px-4 rounded-xl hover:bg-zinc-800 text-zinc-200 hover:text-emerald-400 transition-all text-sm font-medium"
                         >
                           <MessageSquare className="w-4 h-4 text-emerald-400" />
-                          <span>Xabarlar</span>
+                          <span>{t('nav_messages', 'Xabarlar')}</span>
                         </Link>
 
                         {isAdmin && (
@@ -161,7 +174,7 @@ export const Navbar: React.FC = () => {
                             className="flex items-center gap-3 py-3 px-4 rounded-xl hover:bg-amber-500/10 text-amber-400 transition-all text-sm font-medium"
                           >
                             <ShieldCheck className="w-4 h-4" />
-                            <span>Admin Panel</span>
+                            <span>{t('nav_admin', 'Admin Panel')}</span>
                           </Link>
                         )}
 
@@ -173,9 +186,14 @@ export const Navbar: React.FC = () => {
                         className="flex items-center gap-3 py-3 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white transition-all text-sm font-bold w-full justify-center cursor-pointer mt-2"
                       >
                         <LogIn className="w-4 h-4" />
-                        <span>Kirish</span>
+                        <span>{t('nav_login', 'Kirish')}</span>
                       </button>
                     )}
+
+                    {/* Til Sozlamalari (O'zbekiston davlat tillari va kirill) */}
+                    <div className="pt-2 mt-2 border-t border-zinc-800/80">
+                      <LanguageSelector defaultExpanded={true} />
+                    </div>
                   </div>
                 </motion.div>
               </div>

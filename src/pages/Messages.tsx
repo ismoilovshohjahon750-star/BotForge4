@@ -16,6 +16,7 @@ import { LogoIcon } from '../components/Logo';
 import feedbackAvatarImg from '../assets/images/feedback_avatar_1786443979118.jpg';
 import { extractUrls, FormattedMessageText, RichLinkPreviewCard } from '../components/RichLinkPreview';
 import { useCall } from '../context/CallContext';
+import { useTranslation } from '../context/LanguageContext';
 
 interface MessageReply {
   sender: 'admin' | 'user';
@@ -115,6 +116,7 @@ function formatFileSize(bytes: number): string {
 }
 
 export const Messages: React.FC = () => {
+  const { t } = useTranslation();
   const { user, isAdmin } = useAuth();
   const { startCall } = useCall();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -984,10 +986,10 @@ export const Messages: React.FC = () => {
                 <MessageSquare className="w-5 h-5" />
               </div>
               <div>
-                <h1 className="font-bold text-white text-base tracking-tight">Xabarlar</h1>
+                <h1 className="font-bold text-white text-base tracking-tight">{t('nav_messages', 'Xabarlar')}</h1>
                 <p className="text-[11px] text-zinc-400 flex items-center gap-1.5 mt-0.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  Real vaqtli muloqot
+                  {t('msg_realtime', 'Real vaqtli muloqot')}
                 </p>
               </div>
             </div>
@@ -998,17 +1000,17 @@ export const Messages: React.FC = () => {
                   <button
                     onClick={() => setShowDeleteAllModal(true)}
                     className="p-2 text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-xl transition-colors"
-                    title="Barcha suhbatlarni tozalash"
+                    title={t('msg_clear_all', 'Barcha suhbatlarni tozalash')}
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => setIsNewModalOpen(true)}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-black font-semibold text-xs rounded-xl shadow-lg shadow-cyan-500/20 transition-all cursor-pointer"
-                    title="Yangi suhbat ochish"
+                    title={t('msg_new_chat', 'Yangi suhbat ochish')}
                   >
                     <Plus className="w-4 h-4 stroke-[2.5]" />
-                    <span className="hidden sm:inline">Yangi</span>
+                    <span className="hidden sm:inline">{t('msg_new', 'Yangi')}</span>
                   </button>
                 </>
               )}
@@ -1022,7 +1024,7 @@ export const Messages: React.FC = () => {
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Suhbat yoki foydalanuvchini qidirish..."
+              placeholder={t('msg_search_placeholder', 'Suhbat yoki foydalanuvchini qidirish...')}
               className="w-full bg-white/[0.04] text-white placeholder-zinc-500 border border-white/[0.08] text-xs rounded-xl pl-10 pr-9 py-2.5 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/20 transition-all"
             />
             {searchTerm && (
@@ -1045,7 +1047,7 @@ export const Messages: React.FC = () => {
                   : 'text-zinc-400 hover:text-white hover:bg-white/[0.03]'
               }`}
             >
-              <span>Barchasi</span>
+              <span>{t('msg_all', 'Barchasi')}</span>
               {messagesList.length > 0 && (
                 <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
                   activeTab === 'all' ? 'bg-cyan-500/20 text-cyan-300' : 'bg-white/5 text-zinc-400'
@@ -1063,7 +1065,7 @@ export const Messages: React.FC = () => {
                   : 'text-zinc-400 hover:text-white hover:bg-white/[0.03]'
               }`}
             >
-              <span>O'qilmagan</span>
+              <span>{t('msg_unread', "O'qilmagan")}</span>
               {totalUnreadCount > 0 && (
                 <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-cyan-500 text-black font-bold font-mono animate-pulse">
                   {totalUnreadCount}
@@ -1081,21 +1083,21 @@ export const Messages: React.FC = () => {
                 <MessageCircle className="w-7 h-7" />
               </div>
               <p className="text-sm font-semibold text-zinc-200 mb-1">
-                {activeTab === 'unread' ? "O'qilmagan xabarlar yo'q" : "Suhbatlar topilmadi"}
+                {activeTab === 'unread' ? t('msg_no_unread', "O'qilmagan xabarlar yo'q") : t('msg_not_found', "Suhbatlar topilmadi")}
               </p>
               <p className="text-xs text-zinc-500 mb-5 max-w-xs mx-auto">
                 {searchTerm 
-                  ? 'Qidiruv mezonlariga mos keladigan suhbat topilmadi' 
+                  ? t('msg_search_empty', 'Qidiruv mezonlariga mos keladigan suhbat topilmadi') 
                   : activeTab === 'unread'
-                  ? 'Barcha xabarlar o\'qilgan'
-                  : 'CloudBot platformasida yangi suhbatni boshlang'}
+                  ? t('msg_all_read', "Barcha xabarlar o'qilgan")
+                  : t('msg_start_new_desc', 'CloudBot platformasida yangi suhbatni boshlang')}
               </p>
               {!searchTerm && activeTab === 'all' && (
                 <button
                   onClick={() => setIsNewModalOpen(true)}
                   className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-black text-xs font-bold rounded-xl shadow-lg shadow-cyan-500/20 transition-all cursor-pointer"
                 >
-                  Yangi chat boshlash
+                  {t('msg_start_new_btn', 'Yangi chat boshlash')}
                 </button>
               )}
             </div>
@@ -1511,7 +1513,7 @@ export const Messages: React.FC = () => {
                     type="text"
                     value={replyText}
                     onChange={(e) => setReplyText(e.target.value)}
-                    placeholder="Xabar yozing..."
+                    placeholder={t('msg_type_message', 'Xabar yozing...')}
                     disabled={sending}
                     className="w-full bg-white/[0.04] text-white placeholder-zinc-500 text-xs sm:text-sm rounded-xl px-4 py-3 border border-white/[0.08] focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/20 transition-all"
                   />
@@ -1532,7 +1534,7 @@ export const Messages: React.FC = () => {
                   type="submit"
                   disabled={sending || (!replyText.trim() && !selectedFile)}
                   className="p-3 bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-black font-bold rounded-xl transition-all shadow-lg shadow-cyan-500/20 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer"
-                  title="Yuborish"
+                  title={t('msg_send', 'Yuborish')}
                 >
                   {sending ? (
                     <RefreshCw className="w-4 h-4 animate-spin text-black" />
@@ -1548,16 +1550,16 @@ export const Messages: React.FC = () => {
             <div className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-cyan-500/10 via-teal-500/10 to-emerald-500/10 border border-cyan-500/20 text-cyan-400 flex items-center justify-center mb-5 shadow-2xl shadow-cyan-950/30">
               <LogoIcon size={44} />
             </div>
-            <h3 className="text-xl font-bold text-white mb-2 tracking-tight">Suhbat tanlanmagan</h3>
+            <h3 className="text-xl font-bold text-white mb-2 tracking-tight">{t('msg_no_chat_selected', 'Suhbat tanlanmagan')}</h3>
             <p className="text-xs text-zinc-400 max-w-sm mb-6 leading-relaxed">
-              Muloqotni boshlash uchun chapdagi ro‘yxatdan suhbatni tanlang yoki yangi chat oching.
+              {t('msg_select_chat_prompt', "Muloqotni boshlash uchun chapdagi ro'yxatdan suhbatni tanlang yoki yangi chat oching.")}
             </p>
             <button
               onClick={() => setIsNewModalOpen(true)}
               className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-black text-xs font-bold rounded-xl shadow-lg shadow-cyan-500/20 transition-all cursor-pointer"
             >
               <Plus className="w-4 h-4 stroke-[2.5]" />
-              <span>Yangi chat boshlash</span>
+              <span>{t('msg_start_new_btn', 'Yangi chat boshlash')}</span>
             </button>
           </div>
         )}

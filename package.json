@@ -29,6 +29,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "compression": "^1.8.1",
+    "css-vars-ponyfill": "^2.4.9",
     "dotenv": "^17.2.3",
     "emoji-picker-react": "^4.19.1",
     "esbuild": "^0.25.0",

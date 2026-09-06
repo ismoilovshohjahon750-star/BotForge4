@@ -216,10 +216,107 @@
           }
           return false;
         };
+
+        // Early CSS Cascade Layers (@layer) Unwrapper for older browsers (Chrome < 99, Android 5/6 WebView)
+        if (typeof window.CSSLayerBlockRule === 'undefined') {
+          function unwrapCss(css) {
+            if (!css || css.indexOf('@layer') === -1) return css;
+            var res = css.replace(/@layer\s+[^;{]+;/g, '');
+            var out = [], i = 0, n = res.length;
+            while (i < n) {
+              if (res.indexOf('@layer', i) === i) {
+                var b = res.indexOf('{', i);
+                if (b !== -1) {
+                  var depth = 1, j = b + 1;
+                  while (j < n && depth > 0) {
+                    var c = res.charAt(j);
+                    if (c === '{') depth++;
+                    else if (c === '}') depth--;
+                    j++;
+                  }
+                  if (depth === 0) {
+                    out.push(unwrapCss(res.slice(b + 1, j - 1)));
+                    i = j;
+                    continue;
+                  }
+                }
+              }
+              out.push(res.charAt(i));
+              i++;
+            }
+            return out.join('');
+          }
+
+          function fixStyles() {
+            var styles = document.getElementsByTagName('style');
+            for (var i = 0; i < styles.length; i++) {
+              var s = styles[i];
+              if (!s.__fixed && s.textContent && s.textContent.indexOf('@layer') !== -1) {
+                s.textContent = unwrapCss(s.textContent);
+                s.__fixed = true;
+              }
+            }
+          }
+
+          fixStyles();
+          setInterval(fixStyles, 300);
+        }
       })();
     </script>
+    <style id="legacy-core-styles">
+      :root {
+        --background: #09090b;
+        --foreground: #fafafa;
+        --card: #121215;
+        --card-foreground: #fafafa;
+        --primary: #22c55e;
+        --primary-foreground: #ffffff;
+        --border: rgba(255, 255, 255, 0.12);
+        --color-background: #09090b;
+        --color-foreground: #fafafa;
+        --color-card: #121215;
+        --color-primary: #22c55e;
+        --color-border: rgba(255, 255, 255, 0.12);
+        --color-zinc-950: #09090b;
+        --color-zinc-900: #18181b;
+        --color-zinc-800: #27272a;
+        --color-zinc-700: #3f3f46;
+        --color-zinc-400: #a1a1aa;
+        --color-zinc-300: #d4d4d8;
+        --color-zinc-200: #e4e4e7;
+        --color-white: #ffffff;
+        --color-emerald-400: #34d399;
+        --color-emerald-500: #10b981;
+        --color-emerald-600: #059669;
+        --color-emerald-950: #022c22;
+        --color-sky-400: #38bdf8;
+        --color-sky-500: #0ea5e9;
+        --color-sky-600: #0284c7;
+        --color-amber-400: #fbbf24;
+        --color-amber-500: #f59e0b;
+      }
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: #09090b !important;
+        color: #fafafa !important;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }
+      /* Fallback for browsers that fail on CSS variables */
+      .bg-zinc-950, .dark, body { background-color: #09090b; }
+      .bg-zinc-900 { background-color: #18181b; }
+      .bg-zinc-800 { background-color: #27272a; }
+      .text-white { color: #ffffff; }
+      .text-zinc-200 { color: #e4e4e7; }
+      .text-zinc-300 { color: #d4d4d8; }
+      .text-zinc-400 { color: #a1a1aa; }
+      .text-emerald-400 { color: #34d399; }
+      .bg-emerald-500 { background-color: #10b981; }
+      .border-zinc-800 { border-color: #27272a; }
+      .border-zinc-700 { border-color: #3f3f46; }
+    </style>
   </head>
-  <body class="bg-[#0b0f17] text-slate-100">
+  <body class="bg-[#09090b] text-slate-100" style="margin: 0; padding: 0; background-color: #09090b; color: #fafafa;">
     <div id="root">
       <!-- Fallback UI displayed until React mounts to prevent white screen -->
       <div id="app-initial-loader" style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #0b0f17; color: #e2e8f0; font-family: system-ui, -apple-system, sans-serif; padding: 20px; text-align: center;">

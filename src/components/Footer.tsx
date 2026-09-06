@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import { LogoFull } from './Logo';
 import { Mail, Phone, Copy, Check, X, ShieldCheck, FileText, Send } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTranslation } from '../context/LanguageContext';
 
 export const Footer: React.FC = () => {
+  const { t } = useTranslation();
   const [activeModal, setActiveModal] = useState<'shartlar' | 'maxfiylik' | 'kontakt' | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
@@ -63,7 +65,7 @@ export const Footer: React.FC = () => {
           </div>
 
           <p className="text-xs text-zinc-400 font-mono">
-            © 2026 CLOUDBOT. Barcha huquqlar himoyalangan.
+            © 2026 CLOUDBOT. {t('rightsReserved', 'Barcha huquqlar himoyalangan')}.
           </p>
 
           <div className="flex items-center gap-4 text-xs text-zinc-300 font-medium">
@@ -116,15 +118,21 @@ export const Footer: React.FC = () => {
             {/* Modal Body */}
             {activeModal === 'shartlar' && (
               <div className="space-y-4 text-xs text-zinc-300 max-h-[60vh] overflow-y-auto pr-2 leading-relaxed">
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 space-y-1">
+                  <strong className="block text-white font-bold">QAT'IY QOIDA: To'lovlar Qaytarilmaydi!</strong>
+                  <p className="text-[11px] leading-relaxed">
+                    CloudBot.uz platformasida obunalar (Pro, VIP) va xizmatlar uchun to'langan barcha mablag'lar qat'iy va yakuniy bo'lib, <strong>to'lovlar hech qanday holatda qaytarib berilmaydi (No Refund Policy)</strong>.
+                  </p>
+                </div>
+
                 <p className="font-semibold text-zinc-100">1. Umumiy qoidalar</p>
                 <p>
                   CloudBot platformasi Telegram va Discord botlarini 24/7 cloud serverlarda xavfsiz saqlash va ishga tushirish xizmatini taklif etadi.
                 </p>
 
-                <p className="font-semibold text-zinc-100">2. Bot materiallariga qo'yiladigan talablar</p>
+                <p className="font-semibold text-zinc-100">2. Taqiqlangan botlar va javobgarlik</p>
                 <p>
-                  Foydalanuvchi serverga yuklanayotgan bot fayllari va kodi uchun to'liq mas'uldir.
-                  Zararli dasturlar (malware, virus, DDoS hujum skriptlari) yoki noqonuniy botlarni yuklash taqiqlanadi va hisob bloklanishiga olib keladi.
+                  Saytni buzuvchi, o'g'irlik qiluvchi, DDoS, fishing, virusli yoki ruxsatsiz ma'lumot yig'uvchi botlarni yuklash qat'iyan man etiladi. Bunday botlar ogohlantirishsiz o'chiriladi va akkaunt bloklanadi.
                 </p>
 
                 <p className="font-semibold text-zinc-100">3. Server resurslaridan foydalanish</p>
@@ -132,10 +140,14 @@ export const Footer: React.FC = () => {
                   Har bir botga ajratilgan resurslar chegaralangan. Server tizimlariga zarar yetkazuvchi va cheksiz operatsiyalarni bajaruvchi botlar avtomatik to'xtatiladi.
                 </p>
 
-                <p className="font-semibold text-zinc-100">4. Xizmat kafolati</p>
-                <p>
-                  CloudBot platformasi botlarning 24/7 uzluksiz va yuqori tezlikda ishlashini ta'minlashga harakat qiladi.
-                </p>
+                <div className="pt-2 border-t border-zinc-800 flex justify-end">
+                  <a
+                    href="/terms"
+                    className="text-cyan-400 hover:text-cyan-300 font-semibold underline text-xs"
+                  >
+                    Batafsil shartlar sahifasi →
+                  </a>
+                </div>
               </div>
             )}
 
@@ -143,18 +155,27 @@ export const Footer: React.FC = () => {
               <div className="space-y-4 text-xs text-zinc-300 max-h-[60vh] overflow-y-auto pr-2 leading-relaxed">
                 <p className="font-semibold text-zinc-100">1. Ma'lumotlarni muhofaza qilish</p>
                 <p>
-                  Siz yuklagan fayllar, kodlar hamda `.env` konfiguratsiya fayllaridagi Bot Token va maxfiy kalitlar maxfiy va shifrlangan holda saqlanadi.
+                  Siz yuklagan fayllar, kodlar hamda `.env` konfiguratsiya fayllaridagi Bot Token va maxfiy kalitlar maxfiy va shifrlangan holda saqlanadi. Uchinchi shaxslarga berilmaydi.
                 </p>
 
-                <p className="font-semibold text-zinc-100">2. Uchinchi shaxslarga berilmaslik kafolati</p>
+                <p className="font-semibold text-zinc-100">2. Server va tizim maxfiyligi</p>
+                <p>
+                  Server qayerdan olinganligi, ichki arxitektura, hosting parametrlari va sayt kodi qat'iyan MAXFIY saqlanadi. Botly AI va tizim bu ma'lumotlarni hech qachon oshkor qilmaydi.
+                </p>
+
+                <p className="font-semibold text-zinc-100">3. Uchinchi shaxslarga berilmaslik kafolati</p>
                 <p>
                   Foydalanuvchining shaxsiy ma'lumotlari yoki bot kodlari uchinchi shaxslarga berilmaydi va tijorat maqsadida sotilmaydi.
                 </p>
 
-                <p className="font-semibold text-zinc-100">3. Loglar va Ma'lumotlar avtomatizatsiyasi</p>
-                <p>
-                  Server loglari faqat foydalanuvchining bot xatolarini diagnostika qilish uchun paneldagi jurnalda ko'rsatiladi.
-                </p>
+                <div className="pt-2 border-t border-zinc-800 flex justify-end">
+                  <a
+                    href="/privacy"
+                    className="text-emerald-400 hover:text-emerald-300 font-semibold underline text-xs"
+                  >
+                    Batafsil maxfiylik siyosati →
+                  </a>
+                </div>
               </div>
             )}
 

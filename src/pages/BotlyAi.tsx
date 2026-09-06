@@ -5,6 +5,7 @@ import { collection, query, where, orderBy, onSnapshot, serverTimestamp, doc } f
 import { safeAddDoc, safeDeleteDoc, safeUpdateDoc } from '../lib/safeFirestore';
 import { ChatHistory } from '../types';
 import { useAuth } from '../hooks/useAuth';
+import { useTranslation } from '../context/LanguageContext';
 import { LogoIcon } from '../components/Logo';
 import { 
   Bot, 
@@ -59,6 +60,7 @@ interface Message {
 }
 
 export const BotlyAi: React.FC = () => {
+  const { t } = useTranslation();
   const { user } = useAuth();
   
   // States
@@ -523,9 +525,9 @@ export const BotlyAi: React.FC = () => {
                 <LogoIcon size={80} className="relative z-10 animate-idle" />
               </div>
 
-              {/* Greeting message exactly like "Botly AI dan bemalol so'rayvering, Shohjahon!" */}
+              {/* Greeting message */}
               <h2 className="text-3xl md:text-4xl font-normal leading-tight tracking-tight text-white max-w-lg mx-auto font-sans">
-                Botly AI dan bemalol so'rayvering, <span className="font-semibold text-slate-100">{userFirstName}!</span>
+                {t('botly_greeting_prefix', "Botly AI dan bemalol so'rayvering,")} <span className="font-semibold text-slate-100">{userFirstName}!</span>
               </h2>
 
               <p className="text-[#a0a0b2] text-xs max-w-sm mt-3 leading-relaxed">
@@ -689,7 +691,7 @@ export const BotlyAi: React.FC = () => {
               type="text"
               value={inputVal}
               onChange={(e) => setInputVal(e.target.value)}
-              placeholder={`${activePersona} hamrohidan so'rang...`}
+              placeholder={t('botly_ask_placeholder', "Savolingizni yozing...")}
               className="flex-grow bg-transparent border-0 outline-none text-slate-100 placeholder-slate-400 text-sm font-sans tracking-wide"
               disabled={loading}
             />
@@ -700,9 +702,9 @@ export const BotlyAi: React.FC = () => {
               type="submit"
               disabled={!inputVal.trim() || loading}
               className="px-6 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-medium flex items-center gap-2 disabled:opacity-50 transition-all shadow-md active:scale-95 text-sm flex-shrink-0"
-              title="Yuborish"
+              title={t('common_send', 'Yuborish')}
             >
-              <span>Send</span>
+              <span>{t('common_send', 'Yuborish')}</span>
               <Send className="w-4 h-4" />
             </button>
           </div>
@@ -737,8 +739,8 @@ export const BotlyAi: React.FC = () => {
                     <History className="w-4 h-4" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-semibold text-white">Chat tarixi</h3>
-                    <p className="text-[10px] text-slate-400">Agent va Code Expert muloqotlari</p>
+                    <h3 className="text-sm font-semibold text-white">{t('botly_chat_history', 'Chat tarixi')}</h3>
+                    <p className="text-[10px] text-slate-400">{t('botly_chat_history_sub', 'Agent va Code Expert muloqotlari')}</p>
                   </div>
                 </div>
 
