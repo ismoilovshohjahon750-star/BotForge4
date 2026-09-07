@@ -462,6 +462,8 @@ export const Dashboard: React.FC = () => {
             prev.forEach(b => {
               if (map.has(b.id)) {
                 map.set(b.id, { ...b, ...map.get(b.id)! });
+              } else if (b.userId === user.uid || (user.email && b.userEmail === user.email)) {
+                map.set(b.id, b);
               }
             });
             return Array.from(map.values()).filter(b => !deletedBotIdsRef.current.has(b.id));

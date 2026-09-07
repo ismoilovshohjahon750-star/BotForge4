@@ -18,6 +18,7 @@ export interface UserRole {
 export interface Bot {
   id: string;
   userId: string;
+  userEmail?: string;
   name: string;
   language: string;
   status: BotStatus;

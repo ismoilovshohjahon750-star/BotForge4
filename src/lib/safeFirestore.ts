@@ -1,12 +1,7 @@
 import { setDoc, addDoc, updateDoc, deleteDoc, doc, collection, DocumentReference, CollectionReference, UpdateData, disableNetwork } from 'firebase/firestore';
 import { db, secondaryDb } from './firebase';
 
-let primaryQuotaExhausted = true;
-
-// Immediately disable network on primary db to prevent SDK backoff retry loops
-try {
-  disableNetwork(db).catch(() => {});
-} catch (_) {}
+let primaryQuotaExhausted = false;
 
 const withTimeout = <T>(promise: Promise<T>, timeoutMs = 2000): Promise<T> => {
   return Promise.race([

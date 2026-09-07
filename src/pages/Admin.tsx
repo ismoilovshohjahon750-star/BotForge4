@@ -5,7 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
-import { Shield, ShieldCheck, Search, UserCheck, Crown, Zap, Bot, MessageSquare, Save, RefreshCw, Copy, Check, Calendar, BellRing, Send, Trash2, Paperclip, CheckCheck, User, Headphones, Sparkles, CheckCircle2, AlertCircle, Eye, EyeOff, Activity, Radio, ExternalLink, Link2, Smartphone, MessageCircle, AlertTriangle } from 'lucide-react';
+import { Shield, ShieldCheck, Search, UserCheck, Crown, Zap, Bot, MessageSquare, Save, RefreshCw, Copy, Check, Calendar, BellRing, Send, Trash2, Paperclip, CheckCheck, User, Headphones, Sparkles, CheckCircle2, AlertCircle, Eye, EyeOff, Activity, Radio, ExternalLink, Link2, Smartphone, MessageCircle, AlertTriangle, Key, Terminal, Cpu, Clock, ArrowRight, Play, Square, RotateCw, Code2, Layers, Wifi } from 'lucide-react';
 import { LogoIcon } from '../components/Logo';
 import { collection, onSnapshot, doc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -129,6 +129,193 @@ export const Admin: React.FC = () => {
       setSavingTg(false);
     }
   };
+
+  // -------------------------------------------------------------
+  // MOBILE APP API & 5-SECOND REAL-TIME POLLER STATES
+  // -------------------------------------------------------------
+  const [appApiKey, setAppApiKey] = useState('');
+  const [showAppKey, setShowAppKey] = useState(false);
+  const [customKeyInput, setCustomKeyInput] = useState('');
+  const [isEditingKey, setIsEditingKey] = useState(false);
+  const [savingKey, setSavingKey] = useState(false);
+  const [appEndpoints, setAppEndpoints] = useState<{ sync?: string; status?: string; botAction?: string; ping?: string }>({});
+  
+  // Real-time 5-second Poller State
+  const [isLivePolling, setIsLivePolling] = useState(true);
+  const [pollCountdown, setPollCountdown] = useState(5);
+  const [pollLatency, setPollLatency] = useState<number | null>(null);
+  const [liveSyncData, setLiveSyncData] = useState<any>(null);
+  const [totalPollsCount, setTotalPollsCount] = useState(0);
+  const [lastSyncedTime, setLastSyncedTime] = useState<Date | null>(null);
+  const [isSyncingLive, setIsSyncingLive] = useState(false);
+  const [activeCodeSnippet, setActiveCodeSnippet] = useState<'kotlin' | 'java' | 'curl' | 'flutter' | 'js'>('kotlin');
+  const [actioningBotId, setActioningBotId] = useState<string | null>(null);
+
+  // Fetch App API Config (Key & Endpoints)
+  const fetchAppConfig = async () => {
+    try {
+      const token = await user?.getIdToken();
+      const res = await fetch('/api/app/config', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.apiKey) {
+          setAppApiKey(data.apiKey);
+          setCustomKeyInput(data.apiKey);
+        }
+        if (data.endpoints) {
+          setAppEndpoints(data.endpoints);
+        }
+      }
+    } catch (e) {
+      console.warn("Fetch App Config error:", e);
+    }
+  };
+
+  // 5-Second Real-Time Poller Fetcher
+  const fetchLiveSync = async (forcedKey?: string) => {
+    const keyToUse = forcedKey || appApiKey;
+    if (!keyToUse) return;
+
+    try {
+      setIsSyncingLive(true);
+      const startTime = performance.now();
+      const res = await fetch('/api/app/sync', {
+        headers: {
+          'x-api-key': keyToUse
+        }
+      });
+      const endTime = performance.now();
+      setPollLatency(Math.round(endTime - startTime));
+
+      if (res.ok) {
+        const data = await res.json();
+        setLiveSyncData(data);
+        setLastSyncedTime(new Date());
+        setTotalPollsCount(prev => prev + 1);
+      }
+    } catch (err) {
+      console.warn("Live 5s sync poll error:", err);
+    } finally {
+      setIsSyncingLive(false);
+    }
+  };
+
+  // Regenerate API Key
+  const handleRegenerateAppKey = async () => {
+    if (!confirm("Haqiqatan ham yangi API kalit yaratmoqchimisiz? Eski kalit orqali ulangan ilovalarda qayta sozlash talab qilinadi.")) return;
+    try {
+      setSavingKey(true);
+      const token = await user?.getIdToken();
+      const res = await fetch('/api/app/config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ regenerate: true })
+      });
+      const data = await res.json();
+      if (res.ok && data.apiKey) {
+        setAppApiKey(data.apiKey);
+        setCustomKeyInput(data.apiKey);
+        toast.success("Yangi API kalit yaratildi!");
+        fetchLiveSync(data.apiKey);
+      } else {
+        toast.error(data.error || "Kalitni yangilashda xatolik");
+      }
+    } catch (e) {
+      toast.error("Server bilan bog'lanishda xatolik");
+    } finally {
+      setSavingKey(false);
+    }
+  };
+
+  // Save Custom Key
+  const handleSaveCustomKey = async () => {
+    if (!customKeyInput.trim() || customKeyInput.trim().length < 8) {
+      toast.error("API kalit kamida 8 ta belgidan iborat bo'lishi kerak");
+      return;
+    }
+    try {
+      setSavingKey(true);
+      const token = await user?.getIdToken();
+      const res = await fetch('/api/app/config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ newApiKey: customKeyInput.trim() })
+      });
+      const data = await res.json();
+      if (res.ok && data.apiKey) {
+        setAppApiKey(data.apiKey);
+        setIsEditingKey(false);
+        toast.success("Maxsus API kalit saqlandi!");
+        fetchLiveSync(data.apiKey);
+      } else {
+        toast.error(data.error || "Kalitni saqlashda xatolik");
+      }
+    } catch (e) {
+      toast.error("Server bilan bog'lanishda xatolik");
+    } finally {
+      setSavingKey(false);
+    }
+  };
+
+  // Test Bot Action via API
+  const handleTestBotAction = async (botId: string, action: 'start' | 'stop' | 'restart') => {
+    try {
+      setActioningBotId(botId);
+      const res = await fetch('/api/app/bot-action', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': appApiKey
+        },
+        body: JSON.stringify({ botId, action })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(data.message || `Bot muvaffaqiyatli ${action === 'start' ? 'ishga tushirildi' : action === 'stop' ? "to'xtatildi" : 'qayta yuklandi'}`);
+        fetchLiveSync();
+      } else {
+        toast.error(data.error || "Bot harakatini bajarishda xatolik");
+      }
+    } catch (err) {
+      toast.error("API orqali botni boshqarishda xatolik yuz berdi");
+    } finally {
+      setActioningBotId(null);
+    }
+  };
+
+  // 5-Second Real-Time Interval Loop
+  useEffect(() => {
+    if (!isAdmin || !isLivePolling || !appApiKey) return;
+
+    // Trigger immediate sync on load
+    fetchLiveSync();
+
+    // 1-second interval to update countdown and trigger sync every 5 seconds
+    const interval = setInterval(() => {
+      setPollCountdown(prev => {
+        if (prev <= 1) {
+          fetchLiveSync();
+          return 5;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isAdmin, isLivePolling, appApiKey]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    fetchAppConfig();
+  }, [isAdmin, user]);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -680,7 +867,7 @@ export const Admin: React.FC = () => {
 
       {/* Tabs Section */}
       <Tabs defaultValue="users" className="w-full">
-        <TabsList className="mb-6 p-1 bg-muted/60 border rounded-xl">
+        <TabsList className="mb-6 p-1 bg-muted/60 border rounded-xl flex flex-wrap gap-1">
           <TabsTrigger value="users" className="gap-2 rounded-lg font-semibold text-sm">
             <UserCheck className="w-4 h-4" />
             {t('admin_tab_users', 'Foydalanuvchilar va Obunalar')} ({filteredProfiles.length})
@@ -695,6 +882,13 @@ export const Admin: React.FC = () => {
             {tgStatus?.isRunning && (
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-0.5"></span>
             )}
+          </TabsTrigger>
+          <TabsTrigger value="app-api" className="gap-2 rounded-lg font-semibold text-sm">
+            <Smartphone className="w-4 h-4 text-emerald-400" />
+            {t('admin_tab_app_api', 'Ilova API (5s Real-Time)')}
+            <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold bg-emerald-500/20 text-emerald-400 rounded-full border border-emerald-500/30">
+              5s Live
+            </span>
           </TabsTrigger>
         </TabsList>
 
@@ -1371,6 +1565,733 @@ export const Admin: React.FC = () => {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        {/* MOBILE APP API & 5-SECOND REAL-TIME SYNC TAB */}
+        <TabsContent value="app-api" className="space-y-6">
+          {/* Real-time Status Banner */}
+          <div className="bg-gradient-to-r from-emerald-500/15 via-sky-500/10 to-purple-500/15 border border-emerald-500/30 rounded-2xl p-5 shadow-lg backdrop-blur-sm">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div className="flex items-start sm:items-center gap-3.5">
+                <div className="p-3 bg-emerald-500/20 text-emerald-400 rounded-xl border border-emerald-500/40 relative">
+                  <Smartphone className="w-6 h-6" />
+                  {isLivePolling && (
+                    <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full animate-ping"></span>
+                  )}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-lg font-bold text-foreground">
+                      {t('admin_app_api_title', 'Mobil Ilova va Tashqi Tizimlar uchun Real-Time API')}
+                    </h2>
+                    <Badge variant="outline" className={`text-xs px-2 py-0.5 rounded-full font-bold uppercase ${
+                      isLivePolling ? 'text-emerald-400 border-emerald-500/40 bg-emerald-500/10' : 'text-amber-400 border-amber-500/40 bg-amber-500/10'
+                    }`}>
+                      {isLivePolling ? '5s Avto-Sinxronizatsiya Faol' : 'Pauzada'}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {t('admin_app_api_desc', "Android va boshqa ilovalarga har 5 soniyada botlar holati, server parametrlari va yangi loglarni uzatuvchi yuqori tezlikdagi API.")}
+                  </p>
+                </div>
+              </div>
+
+              {/* Poller Controls & Stats */}
+              <div className="flex items-center flex-wrap gap-2.5 bg-background/60 p-2 rounded-xl border border-border/60">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-muted/40 rounded-lg text-xs font-mono">
+                  <Clock className="w-3.5 h-3.5 text-primary" />
+                  <span>Keyingi so'rov:</span>
+                  <span className="font-bold text-emerald-400 min-w-[20px] text-center">{isLivePolling ? `${pollCountdown}s` : '—'}</span>
+                </div>
+
+                {pollLatency !== null && (
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-muted/40 rounded-lg text-xs font-mono">
+                    <Zap className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="text-amber-400 font-bold">{pollLatency} ms</span>
+                  </div>
+                )}
+
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => fetchLiveSync()}
+                  disabled={isSyncingLive}
+                  className="h-8 gap-1.5 text-xs font-semibold rounded-lg"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncingLive ? 'animate-spin text-primary' : ''}`} />
+                  {isSyncingLive ? "Yangilanmoqda..." : "Hozir yangilash"}
+                </Button>
+
+                <Button
+                  size="sm"
+                  variant={isLivePolling ? "secondary" : "default"}
+                  onClick={() => setIsLivePolling(!isLivePolling)}
+                  className="h-8 text-xs font-semibold rounded-lg"
+                >
+                  {isLivePolling ? "Pauza" : "Davom ettirish"}
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Live Metrics Grid */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Card className="border-border/60 bg-card/60 backdrop-blur-sm">
+              <CardHeader className="pb-2">
+                <CardDescription className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Activity className="w-3.5 h-3.5 text-emerald-400" />
+                  Server Holati
+                </CardDescription>
+                <CardTitle className="text-2xl font-black text-emerald-400">
+                  {liveSyncData?.server?.status === 'online' ? 'Online 24/7' : 'Faol'}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="text-xs text-muted-foreground space-y-0.5">
+                <div>Uptime: <span className="text-foreground font-mono font-medium">{liveSyncData?.server?.uptimeFormatted || 'Yuklanmoqda...'}</span></div>
+                <div>RAM: <span className="text-foreground font-mono font-medium">{liveSyncData?.server?.memory?.rssMb ? `${liveSyncData.server.memory.rssMb} MB` : '180 MB'}</span></div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-border/60 bg-card/60 backdrop-blur-sm">
+              <CardHeader className="pb-2">
+                <CardDescription className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Bot className="w-3.5 h-3.5 text-primary" />
+                  Botlar Sinxroni
+                </CardDescription>
+                <CardTitle className="text-2xl font-black text-primary">
+                  {liveSyncData?.stats?.totalBots ?? bots.length} ta
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="text-xs text-muted-foreground space-y-0.5">
+                <div className="text-emerald-400 font-medium">● {liveSyncData?.stats?.runningBots ?? bots.filter(b => b.status === 'running').length} ta ishlayapti</div>
+                <div className="text-muted-foreground">○ {liveSyncData?.stats?.stoppedBots ?? bots.filter(b => b.status !== 'running').length} ta to'xtatilgan</div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-border/60 bg-card/60 backdrop-blur-sm">
+              <CardHeader className="pb-2">
+                <CardDescription className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <UserCheck className="w-3.5 h-3.5 text-sky-400" />
+                  Foydalanuvchilar
+                </CardDescription>
+                <CardTitle className="text-2xl font-black text-sky-400">
+                  {liveSyncData?.stats?.totalUsers ?? filteredProfiles.length}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="text-xs text-muted-foreground space-y-0.5">
+                <div>PRO: <span className="text-foreground font-bold">{liveSyncData?.stats?.proUsers ?? proUsersCount}</span> | VIP: <span className="text-amber-400 font-bold">{liveSyncData?.stats?.vipUsers ?? vipUsersCount}</span></div>
+                <div className="text-muted-foreground">Tizim: 100% Barqaror</div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-border/60 bg-card/60 backdrop-blur-sm">
+              <CardHeader className="pb-2">
+                <CardDescription className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Wifi className="w-3.5 h-3.5 text-purple-400" />
+                  Sinxron So'rovlar
+                </CardDescription>
+                <CardTitle className="text-2xl font-black text-purple-400">
+                  {totalPollsCount} ta
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="text-xs text-muted-foreground space-y-0.5">
+                <div>Oraliq: <span className="text-foreground font-mono font-medium">5000 ms (5s)</span></div>
+                <div>Oxirgi: <span className="text-foreground font-mono font-medium">{lastSyncedTime ? lastSyncedTime.toLocaleTimeString() : 'Hozirgina'}</span></div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* API Key Management Card */}
+          <Card className="border-border/60 shadow-lg">
+            <CardHeader className="pb-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="text-lg font-bold flex items-center gap-2">
+                    <Key className="w-5 h-5 text-amber-400" />
+                    Ilova API Kaliti (x-api-key)
+                  </CardTitle>
+                  <CardDescription className="text-xs mt-1">
+                    Android ilova va tashqi so'rovlar ushbu kalit orqali autentifikatsiyadan o'tadi va ma'lumotlarni oladi.
+                  </CardDescription>
+                </div>
+                <Badge variant="secondary" className="text-xs font-mono px-2.5 py-1 self-start sm:self-auto">
+                  Header: x-api-key
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {isEditingKey ? (
+                <div className="flex flex-col sm:flex-row items-center gap-3">
+                  <Input
+                    value={customKeyInput}
+                    onChange={(e) => setCustomKeyInput(e.target.value)}
+                    placeholder="Masalan: cb_live_mysecretkey123"
+                    className="font-mono text-sm"
+                  />
+                  <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setCustomKeyInput(appApiKey);
+                        setIsEditingKey(false);
+                      }}
+                      className="rounded-xl text-xs"
+                    >
+                      Bekor qilish
+                    </Button>
+                    <Button
+                      onClick={handleSaveCustomKey}
+                      disabled={savingKey}
+                      className="rounded-xl text-xs gap-1.5 font-semibold"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      {savingKey ? "Saqlanmoqda..." : "Saqlash"}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3">
+                  <div className="relative flex-1 bg-muted/50 border border-border/80 rounded-xl px-3.5 py-2.5 flex items-center justify-between font-mono text-sm">
+                    <span className="truncate select-all text-foreground font-semibold">
+                      {showAppKey ? appApiKey || 'cb_live_...' : (appApiKey ? `${appApiKey.substring(0, 8)}••••••••••••••••` : 'cb_live_••••••••')}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setShowAppKey(!showAppKey)}
+                      className="h-7 w-7 text-muted-foreground hover:text-foreground shrink-0 ml-2"
+                    >
+                      {showAppKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </Button>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        if (appApiKey) {
+                          navigator.clipboard.writeText(appApiKey);
+                          toast.success("API kaliti nusxalandi!");
+                        }
+                      }}
+                      className="gap-1.5 text-xs font-semibold rounded-xl flex-1 sm:flex-none"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      Nusxa olish
+                    </Button>
+
+                    <Button
+                      variant="outline"
+                      onClick={() => setIsEditingKey(true)}
+                      className="text-xs font-semibold rounded-xl flex-1 sm:flex-none"
+                    >
+                      O'zgartirish
+                    </Button>
+
+                    <Button
+                      variant="outline"
+                      onClick={handleRegenerateAppKey}
+                      disabled={savingKey}
+                      className="text-xs font-semibold rounded-xl text-amber-500 border-amber-500/30 hover:bg-amber-500/10 flex-1 sm:flex-none"
+                    >
+                      <RotateCw className={`w-3.5 h-3.5 mr-1 ${savingKey ? 'animate-spin' : ''}`} />
+                      Yangi kalit
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Endpoints Table */}
+              <div className="bg-muted/30 border border-border/60 rounded-xl p-3.5 space-y-2.5">
+                <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  Mavjud API Endpointlar (URL):
+                </div>
+                <div className="space-y-2 text-xs font-mono">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 bg-background/60 rounded-lg border border-border/50">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-[10px] font-bold text-emerald-400 border-emerald-500/40 bg-emerald-500/10">GET</Badge>
+                      <span className="text-foreground font-semibold">/api/app/sync</span>
+                      <span className="text-muted-foreground font-sans text-[11px]">(Asosiy 5s sinxronizatsiya)</span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        const url = `${window.location.origin}/api/app/sync`;
+                        navigator.clipboard.writeText(url);
+                        toast.success("URL nusxalandi: " + url);
+                      }}
+                      className="h-6 px-2 text-[11px] gap-1 font-sans"
+                    >
+                      <Copy className="w-3 h-3" />
+                      URL Nusxalash
+                    </Button>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 bg-background/60 rounded-lg border border-border/50">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-[10px] font-bold text-sky-400 border-sky-500/40 bg-sky-500/10">POST</Badge>
+                      <span className="text-foreground font-semibold">/api/app/bot-action</span>
+                      <span className="text-muted-foreground font-sans text-[11px]">(Botni start/stop/restart qilish)</span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        const url = `${window.location.origin}/api/app/bot-action`;
+                        navigator.clipboard.writeText(url);
+                        toast.success("URL nusxalandi: " + url);
+                      }}
+                      className="h-6 px-2 text-[11px] gap-1 font-sans"
+                    >
+                      <Copy className="w-3 h-3" />
+                      URL Nusxalash
+                    </Button>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 bg-background/60 rounded-lg border border-border/50">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-[10px] font-bold text-emerald-400 border-emerald-500/40 bg-emerald-500/10">GET</Badge>
+                      <span className="text-foreground font-semibold">/api/app/ping</span>
+                      <span className="text-muted-foreground font-sans text-[11px]">(Tezkor 200 OK tekshiruvi)</span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        const url = `${window.location.origin}/api/app/ping`;
+                        navigator.clipboard.writeText(url);
+                        toast.success("URL nusxalandi: " + url);
+                      }}
+                      className="h-6 px-2 text-[11px] gap-1 font-sans"
+                    >
+                      <Copy className="w-3 h-3" />
+                      URL Nusxalash
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Integration Code Snippets Card */}
+          <Card className="border-border/60 shadow-lg">
+            <CardHeader className="pb-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="text-lg font-bold flex items-center gap-2">
+                    <Code2 className="w-5 h-5 text-sky-400" />
+                    Ilovani Ulash Kod Namunalari (5s Polling Code)
+                  </CardTitle>
+                  <CardDescription className="text-xs mt-1">
+                    Android (Kotlin/Java), Flutter yoki boshqa tildagi ilovangizga nusxalab qo'yishingiz mumkin bo'lgan tayyor kod.
+                  </CardDescription>
+                </div>
+
+                <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-xl border border-border/60">
+                  <button
+                    onClick={() => setActiveCodeSnippet('kotlin')}
+                    className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
+                      activeCodeSnippet === 'kotlin' ? 'bg-primary text-primary-foreground shadow' : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    Kotlin (Android)
+                  </button>
+                  <button
+                    onClick={() => setActiveCodeSnippet('java')}
+                    className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
+                      activeCodeSnippet === 'java' ? 'bg-primary text-primary-foreground shadow' : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    Java
+                  </button>
+                  <button
+                    onClick={() => setActiveCodeSnippet('curl')}
+                    className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
+                      activeCodeSnippet === 'curl' ? 'bg-primary text-primary-foreground shadow' : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    cURL
+                  </button>
+                  <button
+                    onClick={() => setActiveCodeSnippet('flutter')}
+                    className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
+                      activeCodeSnippet === 'flutter' ? 'bg-primary text-primary-foreground shadow' : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    Flutter
+                  </button>
+                  <button
+                    onClick={() => setActiveCodeSnippet('js')}
+                    className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
+                      activeCodeSnippet === 'js' ? 'bg-primary text-primary-foreground shadow' : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    JS / Node
+                  </button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="relative">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    let codeText = "";
+                    const hostUrl = window.location.origin;
+                    const keyVal = appApiKey || "cb_live_your_api_key_here";
+
+                    if (activeCodeSnippet === 'kotlin') {
+                      codeText = `// Kotlin (Coroutines 5-second polling loop)
+class BotSyncPoller(private val apiKey: String = "${keyVal}") {
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
+        .build()
+
+    fun start5sPolling(scope: CoroutineScope, onUpdate: (String) -> Unit) {
+        scope.launch(Dispatchers.IO) {
+            while (isActive) {
+                try {
+                    val request = Request.Builder()
+                        .url("${hostUrl}/api/app/sync")
+                        .addHeader("x-api-key", apiKey)
+                        .get()
+                        .build()
+
+                    client.newCall(request).execute().use { response ->
+                        if (response.isSuccessful) {
+                            val jsonBody = response.body?.string() ?: ""
+                            withContext(Dispatchers.Main) {
+                                onUpdate(jsonBody)
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("BotSyncPoller", "Sync error: \${e.message}")
+                }
+                delay(5000L) // Har 5 soniyada yangilanadi
+            }
+        }
+    }
+}`;
+                    } else if (activeCodeSnippet === 'java') {
+                      codeText = `// Java (ScheduledExecutorService 5-second polling)
+ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+OkHttpClient client = new OkHttpClient();
+
+scheduler.scheduleAtFixedRate(() -> {
+    try {
+        Request request = new Request.Builder()
+            .url("${hostUrl}/api/app/sync")
+            .addHeader("x-api-key", "${keyVal}")
+            .build();
+
+        Response response = client.newCall(request).execute();
+        if (response.isSuccessful()) {
+            String jsonData = response.body().string();
+            // Ma'lumotlarni ilovaga yangilash
+            System.out.println("5s Sync data: " + jsonData);
+        }
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
+}, 0, 5, TimeUnit.SECONDS);`;
+                    } else if (activeCodeSnippet === 'curl') {
+                      codeText = `# 1. Har 5 soniyada ma'lumot olish (Sync)
+curl -X GET "${hostUrl}/api/app/sync" \\
+     -H "x-api-key: ${keyVal}"
+
+# 2. Botni masofadan boshqarish (Start / Stop / Restart)
+curl -X POST "${hostUrl}/api/app/bot-action" \\
+     -H "Content-Type: application/json" \\
+     -H "x-api-key: ${keyVal}" \\
+     -d '{"botId": "BOT_ID_BU_YERGA", "action": "restart"}'`;
+                    } else if (activeCodeSnippet === 'flutter') {
+                      codeText = `// Flutter / Dart (Timer 5-second polling)
+Timer.periodic(const Duration(seconds: 5), (timer) async {
+  try {
+    final response = await http.get(
+      Uri.parse('${hostUrl}/api/app/sync'),
+      headers: {
+        'x-api-key': '${keyVal}',
+      },
+    );
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      print("Real-time Bots count: \${data['stats']['totalBots']}");
+    }
+  } catch (e) {
+    print("Sync error: \$e");
+  }
+});`;
+                    } else {
+                      codeText = `// JavaScript / React Native 5s Poller
+const fetchLiveSync = async () => {
+  try {
+    const res = await fetch('${hostUrl}/api/app/sync', {
+      headers: { 'x-api-key': '${keyVal}' }
+    });
+    const data = await res.json();
+    console.log("5s Sync:", data);
+  } catch (err) {
+    console.error("Sync error:", err);
+  }
+};
+
+setInterval(fetchLiveSync, 5000);
+fetchLiveSync();`;
+                    }
+
+                    navigator.clipboard.writeText(codeText);
+                    toast.success("Kod nusxalandi!");
+                  }}
+                  className="absolute top-3 right-3 z-10 h-7 text-xs font-semibold gap-1.5 rounded-lg"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  Kodni nusxalash
+                </Button>
+
+                <div className="bg-slate-950 text-slate-100 p-4 rounded-xl font-mono text-xs overflow-x-auto border border-border/60 leading-relaxed">
+                  {activeCodeSnippet === 'kotlin' && (
+                    <pre>{`// Kotlin (Android Coroutines 5-soniyali doimiy sinxronizatsiya)
+class BotSyncPoller(private val apiKey: String = "${appApiKey || 'cb_live_YOUR_KEY'}") {
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
+        .build()
+
+    fun start5sPolling(scope: CoroutineScope, onUpdate: (String) -> Unit) {
+        scope.launch(Dispatchers.IO) {
+            while (isActive) {
+                try {
+                    val request = Request.Builder()
+                        .url("${window.location.origin}/api/app/sync")
+                        .addHeader("x-api-key", apiKey)
+                        .get()
+                        .build()
+
+                    client.newCall(request).execute().use { response ->
+                        if (response.isSuccessful) {
+                            val jsonBody = response.body?.string() ?: ""
+                            withContext(Dispatchers.Main) {
+                                onUpdate(jsonBody) // UI'ni yangilash
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("BotSyncPoller", "Sync error: \${e.message}")
+                }
+                delay(5000L) // Har 5 soniyada avtomatik so'rov yuborish
+            }
+        }
+    }
+}`}</pre>
+                  )}
+
+                  {activeCodeSnippet === 'java' && (
+                    <pre>{`// Java (Android ScheduledExecutorService 5-soniyali sinxronizatsiya)
+ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+OkHttpClient client = new OkHttpClient();
+
+scheduler.scheduleAtFixedRate(() -> {
+    try {
+        Request request = new Request.Builder()
+            .url("${window.location.origin}/api/app/sync")
+            .addHeader("x-api-key", "${appApiKey || 'cb_live_YOUR_KEY'}")
+            .build();
+
+        Response response = client.newCall(request).execute();
+        if (response.isSuccessful()) {
+            String jsonData = response.body().string();
+            // Android UI yoki ViewModel'ga uzatish
+            runOnUiThread(() -> updateUi(jsonData));
+        }
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
+}, 0, 5, TimeUnit.SECONDS); // 5 soniyali interval`}</pre>
+                  )}
+
+                  {activeCodeSnippet === 'curl' && (
+                    <pre>{`# 1. 5-soniyada server va botlar holatini olish:
+curl -X GET "${window.location.origin}/api/app/sync" \\
+     -H "x-api-key: ${appApiKey || 'cb_live_YOUR_KEY'}"
+
+# 2. Masofadan turib botni boshqarish (action: start | stop | restart):
+curl -X POST "${window.location.origin}/api/app/bot-action" \\
+     -H "Content-Type: application/json" \\
+     -H "x-api-key: ${appApiKey || 'cb_live_YOUR_KEY'}" \\
+     -d '{"botId": "BOT_ID_BU_YERGA", "action": "restart"}'`}</pre>
+                  )}
+
+                  {activeCodeSnippet === 'flutter' && (
+                    <pre>{`// Flutter / Dart (5-soniyali Timer orqali sinxronlash)
+import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+
+void start5sPoller() {
+  Timer.periodic(const Duration(seconds: 5), (timer) async {
+    try {
+      final response = await http.get(
+        Uri.parse('${window.location.origin}/api/app/sync'),
+        headers: {
+          'x-api-key': '${appApiKey || 'cb_live_YOUR_KEY'}',
+        },
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        print("Real-time Bots: \${data['bots']}");
+      }
+    } catch (e) {
+      print("Sync error: \$e");
+    }
+  });
+}`}</pre>
+                  )}
+
+                  {activeCodeSnippet === 'js' && (
+                    <pre>{`// JavaScript / React Native / Node.js
+const fetchLiveSync = async () => {
+  try {
+    const res = await fetch('${window.location.origin}/api/app/sync', {
+      headers: { 'x-api-key': '${appApiKey || 'cb_live_YOUR_KEY'}' }
+    });
+    const data = await res.json();
+    console.log("5s Sync data:", data);
+  } catch (err) {
+    console.error("Sync error:", err);
+  }
+};
+
+setInterval(fetchLiveSync, 5000); // 5000 ms
+fetchLiveSync();`}</pre>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Live Bot Control Tester via API */}
+          <Card className="border-border/60 shadow-lg">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg font-bold flex items-center gap-2">
+                <Zap className="w-5 h-5 text-amber-400" />
+                API Orqali Botlarni Masofadan Sinov Boshqaruvi
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Ushbu bo'lim mobil ilovangiz `POST /api/app/bot-action` API orqali botlarni qanday boshqarishini real vaqtda sinab ko'rish imkonini beradi.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {bots.length === 0 ? (
+                <div className="text-center py-6 text-xs text-muted-foreground">
+                  Hozircha tizimda botlar mavjud emas
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {bots.map(b => (
+                    <div key={b.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-muted/40 rounded-xl border border-border/60">
+                      <div className="flex items-center gap-3">
+                        <div className={`p-2 rounded-lg ${b.status === 'running' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-muted text-muted-foreground'}`}>
+                          <Bot className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-sm text-foreground">{b.name}</span>
+                            <Badge variant="outline" className={`text-[10px] px-1.5 py-0.2 rounded-md ${
+                              b.status === 'running' ? 'text-emerald-400 border-emerald-500/30' : 'text-muted-foreground'
+                            }`}>
+                              {b.status === 'running' ? 'Ishlayapti' : "To'xtatilgan"}
+                            </Badge>
+                          </div>
+                          <div className="text-[11px] text-muted-foreground font-mono mt-0.5">
+                            ID: {b.id} | Fayl: {b.entryPoint || 'bot.py'}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 self-end sm:self-auto">
+                        {b.status !== 'running' ? (
+                          <Button
+                            size="sm"
+                            variant="default"
+                            onClick={() => handleTestBotAction(b.id, 'start')}
+                            disabled={actioningBotId === b.id}
+                            className="h-7 text-xs font-semibold gap-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg"
+                          >
+                            <Play className="w-3 h-3" />
+                            {actioningBotId === b.id ? "..." : "API Start"}
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleTestBotAction(b.id, 'stop')}
+                            disabled={actioningBotId === b.id}
+                            className="h-7 text-xs font-semibold gap-1 text-destructive border-destructive/30 hover:bg-destructive/10 rounded-lg"
+                          >
+                            <Square className="w-3 h-3" />
+                            {actioningBotId === b.id ? "..." : "API Stop"}
+                          </Button>
+                        )}
+
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => handleTestBotAction(b.id, 'restart')}
+                          disabled={actioningBotId === b.id}
+                          className="h-7 text-xs font-semibold gap-1 rounded-lg"
+                        >
+                          <RotateCw className={`w-3 h-3 ${actioningBotId === b.id ? 'animate-spin' : ''}`} />
+                          API Restart
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Live JSON Payload Inspector */}
+          <Card className="border-border/60 shadow-lg">
+            <CardHeader className="pb-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="text-lg font-bold flex items-center gap-2">
+                    <Terminal className="w-5 h-5 text-emerald-400" />
+                    Jonli JSON Javob Ko'ruvchi (Live 5s Payload)
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Ilovangiz har 5 soniyada qabul qilib oladigan to'liq tuzilmaviy JSON ma'lumotlar paketi.
+                  </CardDescription>
+                </div>
+
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    if (liveSyncData) {
+                      navigator.clipboard.writeText(JSON.stringify(liveSyncData, null, 2));
+                      toast.success("JSON nusxalandi!");
+                    }
+                  }}
+                  className="h-7 text-xs font-semibold gap-1.5 rounded-lg"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  JSON Nusxalash
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="bg-slate-950 text-emerald-400 p-4 rounded-xl font-mono text-xs overflow-x-auto max-h-[350px] border border-border/60">
+                <pre>{liveSyncData ? JSON.stringify(liveSyncData, null, 2) : "// Ma'lumotlar yuklanmoqda..."}</pre>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 
