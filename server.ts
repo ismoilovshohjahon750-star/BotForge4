@@ -2749,9 +2749,35 @@ async function startServer() {
 
   const upload = multer({ storage: multer.memoryStorage() });
 
-  // API Routes
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", service: "CloudBot Backend" });
+  // API Routes & Uptime Monitoring Endpoints (Render / UptimeRobot / Cron-Job)
+  const healthHandler = (req: express.Request, res: express.Response) => {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.setHeader("Connection", "keep-alive");
+    res.status(200).json({
+      status: "ok",
+      uptime: Math.floor(process.uptime()),
+      timestamp: new Date().toISOString(),
+      service: "CloudBot 24/7 Hosting Platform",
+      platform: "render-ready"
+    });
+  };
+
+  // Instant response for any monitoring method: GET, HEAD, POST
+  app.all(["/health", "/healthz", "/ping", "/live", "/api/health", "/api/ping"], healthHandler);
+
+  // Quick HEAD handler for root URL so UptimeRobot HEAD checks never timeout or return 503
+  app.head("/", (req, res) => {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.status(200).end();
+  });
+
+  // Browser favicon fallback to ensure CloudBot logo always renders on all browsers/tabs
+  app.get(["/favicon.ico", "/favicon.png"], (req, res) => {
+    res.setHeader("Content-Type", "image/svg+xml");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.sendFile(path.join(process.cwd(), "public", "favicon.svg"));
   });
 
   // Contact Form Submission (Tezkor xabar yuborish -> Email & Firestore)
@@ -2983,6 +3009,27 @@ async function startServer() {
           db.prepare("INSERT OR REPLACE INTO subscriptions (user_id, plan, assignedDateFormatted, dueDateFormatted, assignedAt, dueDateISO, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
             userId, 'vip', '29.08.2026', '29.08.2027', now, due, now
           );
+        }
+      } else if (adminDb && !isFirestoreQuotaExhausted()) {
+        // Synchronize existing subscription from Firestore (e.g. if granted via Android or admin previously)
+        try {
+          const fsSub = await adminDb.collection('subscriptions').doc(userId).get();
+          if (fsSub.exists) {
+            const subData = fsSub.data() || {};
+            if (subData.plan) {
+              db.prepare("INSERT OR REPLACE INTO subscriptions (user_id, plan, assignedDateFormatted, dueDateFormatted, assignedAt, dueDateISO, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+                userId,
+                subData.plan,
+                subData.assignedDateFormatted || null,
+                subData.dueDateFormatted || null,
+                subData.assignedAt || now,
+                subData.dueDateISO || null,
+                now
+              );
+            }
+          }
+        } catch (fsErr) {
+          handleFirestoreError(fsErr, 'sync user sub from Firestore');
         }
       }
 
@@ -4082,11 +4129,11 @@ async function startServer() {
     const requestAll = req.query.all === 'true' || req.query.scope === 'all';
 
     try {
-      // 1. Diskdagi botlarni SQLite DB bilan avtomatik sinxronlash
-      syncBotsFromDisk(db, userId);
+      // 1. Diskdagi botlarni SQLite DB bilan sinxronlash (Faqat admin uchun defaultUserId beriladi)
+      syncBotsFromDisk(db, isGlobalAdmin ? userId : undefined);
 
-      // 2. Bo'sh yoki biriktirilmagan botlarni joriy foydalanuvchiga biriktirish
-      if (userId) {
+      // 2. Bo'sh yoki biriktirilmagan botlarni faqat global admin foydalanuvchisiga biriktirish
+      if (isGlobalAdmin && userId) {
         db.prepare("UPDATE bots SET owner_id = ? WHERE owner_id IS NULL OR owner_id = ''").run(userId);
       }
 
@@ -4122,10 +4169,8 @@ async function startServer() {
       if (isGlobalAdmin && requestAll) {
         rows = db.prepare('SELECT id, owner_id as userId, name, language, entryPoint, status FROM bots').all();
       } else {
-        rows = db.prepare("SELECT id, owner_id as userId, name, language, entryPoint, status FROM bots WHERE owner_id = ? OR owner_id IS NULL OR owner_id = ''").all(userId);
-        if (rows.length === 0) {
-          rows = db.prepare('SELECT id, owner_id as userId, name, language, entryPoint, status FROM bots').all();
-        }
+        // Strict ownership isolation: har bir foydalanuvchi faqat o'z botlarini ko'radi
+        rows = db.prepare("SELECT id, owner_id as userId, name, language, entryPoint, status FROM bots WHERE owner_id = ?").all(userId);
       }
       
       const bots = rows.map(r => {
@@ -6116,6 +6161,29 @@ async function restoreAndSuperviseBots() {
   startTelegramSupportBotWorker().catch(err => {
     console.error("[Telegram AI Support Worker error]:", err);
   });
+
+  // Start Render Free-Tier Anti-Sleep / Keep-Alive Worker
+  startRenderKeepAliveWorker();
+}
+
+function startRenderKeepAliveWorker() {
+  const targetUrl = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL || process.env.SITE_URL;
+  if (targetUrl) {
+    console.log(`⏱️ [Render Keep-Alive]: Faol. Har 9 daqiqada ${targetUrl}/health ga so'rov yuboriladi (uxlab qolishni oldini olish).`);
+    setInterval(async () => {
+      try {
+        const pingUrl = targetUrl.replace(/\/+$/, '') + '/health';
+        const res = await fetch(pingUrl, {
+          headers: { 'User-Agent': 'CloudBot-KeepAlive/1.0' }
+        });
+        console.log(`⏱️ [Render Keep-Alive Ping]: ${pingUrl} -> Status: ${res.status}`);
+      } catch (err: any) {
+        console.warn(`⏱️ [Render Keep-Alive Ping ogohlantirish]:`, err.message);
+      }
+    }, 9 * 60 * 1000); // Har 9 daqiqada (Render 15 daqiqada uxlaydi)
+  } else {
+    console.log("⏱️ [Render Keep-Alive]: UptimeRobot yoki tashqi ping uchun /health va /ping tayyor.");
+  }
 }
 
 startServer();

@@ -15,6 +15,7 @@ import { Pricing } from './pages/Pricing';
 import { Admin } from './pages/Admin';
 import { Messages } from './pages/Messages';
 import { Auth } from './pages/Auth';
+import { ResetPassword } from './pages/ResetPassword';
 import { BotlyAi } from './pages/BotlyAi';
 import { Docs } from './pages/Docs';
 import { Terms } from './pages/Terms';
@@ -42,6 +43,7 @@ function AppLayout() {
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/auth" element={<Auth />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/pricing" element={<Pricing />} />
           <Route path="/docs" element={<Docs />} />
           <Route path="/terms" element={<Terms />} />

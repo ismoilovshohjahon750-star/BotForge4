@@ -402,13 +402,13 @@ export const Dashboard: React.FC = () => {
           const data = await res.json();
           if (data.bots && isMounted) {
             const validBots = (data.bots as Bot[]).filter(b => 
-              (!b.userId || b.userId === user.uid || user.email === 'ismoilovshohjahon750@gmail.com') && !deletedBotIdsRef.current.has(b.id)
+              (!b.userId || b.userId === user.uid) && !deletedBotIdsRef.current.has(b.id)
             );
             setBots(prev => {
               const map = new Map<string, Bot>();
               // Keep previous user bots
               prev.forEach(b => {
-                if ((!b.userId || b.userId === user.uid || user.email === 'ismoilovshohjahon750@gmail.com') && !deletedBotIdsRef.current.has(b.id)) {
+                if ((!b.userId || b.userId === user.uid) && !deletedBotIdsRef.current.has(b.id)) {
                   map.set(b.id, b);
                 }
               });

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -41,11 +41,20 @@ import { useTranslation } from '../context/LanguageContext';
 
 export const Auth: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const { t } = useTranslation();
   const [isSignUp, setIsSignUp] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [showPassword, setShowPassword] = useState<boolean>(false);
+
+  // Auto-redirect to dedicated Reset Password page if resetPassword action code is present
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('mode') === 'resetPassword' || params.get('oobCode')) {
+      navigate(`/reset-password${location.search}`, { replace: true });
+    }
+  }, [location.search, navigate]);
   
   // Custom interactive credentials states
   const [email, setEmail] = useState<string>('');
@@ -92,7 +101,8 @@ export const Auth: React.FC = () => {
   // Handle Classic Email & Password submission
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || !password.trim()) {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !password.trim()) {
       toast.error("Barcha maydonlarni to'ldirish majburiy!");
       return;
     }
@@ -113,24 +123,22 @@ export const Auth: React.FC = () => {
 
       setLoading(true);
       try {
-        const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
+        const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, password);
         const currentUser = userCredential.user;
         
-        // Dispatch official verification email with return URL
+        // Dispatch verification email in background
         try {
           await sendEmailVerification(currentUser, {
             url: window.location.origin + '/dashboard',
             handleCodeInApp: false
           });
-          setSentEmailAddress(email.trim());
-          setVerificationSent(true);
-          toast.success("Tasdiqlash havolasi kiritilgan emailingizga yuborildi! Pochtani tekshiring.");
         } catch (verifError: any) {
           console.warn("sendEmailVerification notice:", verifError);
-          setSentEmailAddress(email.trim());
-          setVerificationSent(true);
-          toast.info("Hisob yaratildi. Tasdiqlash xati yuborildi.");
         }
+
+        setSentEmailAddress(cleanEmail);
+        setVerificationSent(true);
+        toast.success("Hisobingiz muvaffaqiyatli yaratildi! Tasdiqlash havolasi emailingizga yuborildi.");
       } catch (error: any) {
         if (error.code === 'auth/email-already-in-use') {
           setIsSignUp(false);
@@ -150,11 +158,11 @@ export const Auth: React.FC = () => {
     } else {
       setLoading(true);
       try {
-        const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
+        const userCredential = await signInWithEmailAndPassword(auth, cleanEmail, password);
         const loggedUser = userCredential.user;
         
         if (loggedUser && !loggedUser.emailVerified) {
-          toast.info("Tizimga kirdingiz. Emailingiz hali tasdiqlanmagan.");
+          toast.info("Tizimga muvaffaqiyatli kirdingiz!");
         } else {
           toast.success("Tizimga muvaffaqiyatli kirdingiz!");
         }
@@ -168,7 +176,7 @@ export const Auth: React.FC = () => {
           error.code === 'auth/wrong-password' ||
           error.code === 'auth/invalid-login-credentials'
         ) {
-          toast.error("Email yoki parol noto'g'ri! Iltimos tekshirib qaytadan kiring yoki 'Parolni unutdingizmi?' orqali parolni tiklang.");
+          toast.error("Email yoki maxfiy parol noto'g'ri! Iltimos, kiritilgan ma'lumotlarni tekshiring. Agar hisobingiz bo'lmasa, yuqoridagi 'Sign Up' orqali ro'yxatdan o'ting.");
         } else if (error.code === 'auth/invalid-email') {
           toast.error("Email manzili noto'g'ri kiritilgan!");
         } else if (error.code === 'auth/too-many-requests') {
@@ -182,30 +190,10 @@ export const Auth: React.FC = () => {
     }
   };
 
-  // Handle Forgot Password
-  const handleForgotPassword = async () => {
-    if (!email.trim()) {
-      toast.info("Iltimos, avval Email Manzil maydoniga emailingizni kiriting va so'ng 'Parolni unutdingizmi?' tugmasini bosing.");
-      return;
-    }
-    setLoading(true);
-    try {
-      await sendPasswordResetEmail(auth, email.trim(), {
-        url: window.location.origin + '/auth',
-        handleCodeInApp: false
-      });
-      toast.success(`${email.trim()} manziliga parolni tiklash havolasi yuborildi! Pochtani tekshiring.`);
-    } catch (err: any) {
-      if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
-        toast.error("Ushbu email bilan ro'yxatdan o'tgan foydalanuvchi topilmadi.");
-      } else if (err.code === 'auth/invalid-email') {
-        toast.error("Email manzili noto'g'ri formatda.");
-      } else {
-        toast.error("Parolni tiklashda xatolik: " + (err.message || "Xatolik yuz berdi"));
-      }
-    } finally {
-      setLoading(false);
-    }
+  // Handle Forgot Password -> Navigate to dedicated modern Reset Password page
+  const handleForgotPassword = () => {
+    const cleanEmail = email.trim().toLowerCase();
+    navigate(`/reset-password${cleanEmail ? `?email=${encodeURIComponent(cleanEmail)}` : ''}`);
   };
 
   // Resend Verification Email Functionality
@@ -243,14 +231,14 @@ export const Auth: React.FC = () => {
         await auth.currentUser.reload();
         if (auth.currentUser.emailVerified) {
           toast.success("Email muvaffaqiyatli tasdiqlandi! Boshqaruv paneliga yo'naltirilmoqda...");
-          setTimeout(() => {
-            window.location.href = '/dashboard';
-          }, 800);
         } else {
-          toast.warning("Email hali tasdiqlanmagan. Iltimos, emailingizga kelgan havolani bosing va qayta tekshiring.");
+          toast.info("Boshqaruv paneliga yo'naltirilmoqda...");
         }
+        setTimeout(() => {
+          window.location.href = '/dashboard';
+        }, 500);
       } catch (err: any) {
-        toast.error("Tekshirishda xatolik: " + err.message);
+        window.location.href = '/dashboard';
       }
     } else {
       window.location.href = '/dashboard';
@@ -320,9 +308,9 @@ export const Auth: React.FC = () => {
                   </div>
                   <ol className="space-y-2 text-slate-400 text-xs list-decimal list-inside leading-relaxed">
                     <li><strong className="text-slate-200">Email pochtangizni</strong> oching.</li>
-                    <li><strong className="text-slate-200">Botly</strong> tomonidan yuborilgan tasdiqlash xatini toping.</li>
+                    <li><strong className="text-slate-200">CloudBot</strong> tomonidan yuborilgan tasdiqlash xatini toping.</li>
                     <li>Xat ichidagi <strong className="text-emerald-400">Tasdiqlash havolasini</strong> bosing.</li>
-                    <li>Tasdiqlagandan so'ng pastdagi <strong>"Tasdiqlanganini tekshirish"</strong> tugmasini bosing.</li>
+                    <li>Tasdiqlagandan so'ng pastdagi <strong>"Tasdiqlandi, Kirish"</strong> tugmasini bosing yoki to'g'ridan-to'g'ri Dashboardga o'ting.</li>
                   </ol>
                 </div>
 
@@ -344,29 +332,41 @@ export const Auth: React.FC = () => {
                   <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-yellow-400" />
                   <div>
                     <strong className="block text-white mb-0.5">Xat kelmadimi?</strong>
-                    Iltimos, pochtangizning <strong>Spam (Keraksiz xatlar)</strong> yoki <strong>Promotions (Reklama)</strong> bo'limlarini ham tekshirib ko'ring.
+                    Iltimos, pochtangizning <strong>Spam (Keraksiz xatlar)</strong> bo'limini tekshiring yoki to'g'ridan-to'g'ri quyidagi tugma orqali Dashboardga o'ting.
                   </div>
                 </div>
 
                 {/* Action Buttons */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div className="space-y-2.5 pt-1">
                   <Button 
                     type="button" 
-                    variant="outline" 
-                    onClick={handleResendVerification}
-                    disabled={resendCooldown > 0}
-                    className="py-5 border-white/10 hover:bg-white/5 rounded-xl text-xs font-semibold text-slate-300 disabled:opacity-50"
+                    onClick={() => { window.location.href = '/dashboard'; }}
+                    className="w-full py-5 rounded-xl bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 text-white font-extrabold text-xs shadow-lg shadow-emerald-500/15 cursor-pointer flex items-center justify-center gap-1.5"
                   >
-                    {resendCooldown > 0 ? `Qayta yuborish (${resendCooldown}s)` : "Xatni Qayta Yuborish"}
+                    <span>Boshqaruv Paneliga O'tish</span>
+                    <ArrowRight className="w-4 h-4 ml-1" />
                   </Button>
-                  <Button 
-                    type="button" 
-                    onClick={handleCheckVerification}
-                    className="py-5 rounded-xl bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 text-white font-extrabold text-xs shadow-lg shadow-emerald-500/15"
-                  >
-                    <CheckCircle2 className="w-4 h-4 mr-1.5" />
-                    Tasdiqlandi, Kirish
-                  </Button>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      onClick={handleResendVerification}
+                      disabled={resendCooldown > 0}
+                      className="py-4 border-white/10 hover:bg-white/5 rounded-xl text-xs font-semibold text-slate-300 disabled:opacity-50"
+                    >
+                      {resendCooldown > 0 ? `Qayta yuborish (${resendCooldown}s)` : "Xatni Qayta Yuborish"}
+                    </Button>
+                    <Button 
+                      type="button" 
+                      variant="secondary"
+                      onClick={handleCheckVerification}
+                      className="py-4 border-white/10 bg-white/10 hover:bg-white/15 rounded-xl text-xs font-semibold text-white"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 mr-1.5 text-emerald-400" />
+                      Tasdiqlandi, Kirish
+                    </Button>
+                  </div>
                 </div>
 
                 <div className="text-center pt-2">
@@ -395,7 +395,7 @@ export const Auth: React.FC = () => {
                 </CardTitle>
                 <CardDescription className="text-xs text-slate-400">
                   {isSignUp 
-                    ? 'Botly platformasining imkoniyatlaridan to\'liq foydalanish uchun ro\'yxatdan o\'ting'
+                    ? 'CloudBot platformasining imkoniyatlaridan to\'liq foydalanish uchun ro\'yxatdan o\'ting'
                     : t('auth_loginSubtitle', 'Boshqaruv paneliga kirish va botlarni boshqarish uchun tizimga kiring')
                   }
                 </CardDescription>
