@@ -5,7 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
-import { Shield, ShieldCheck, Search, UserCheck, Crown, Zap, Bot, MessageSquare, Save, RefreshCw, Copy, Check, Calendar, BellRing, Send, Trash2, Paperclip, CheckCheck, User, Headphones, Sparkles, CheckCircle2, AlertCircle, Eye, EyeOff, Activity, Radio, ExternalLink, Link2, Smartphone, MessageCircle, AlertTriangle, Key, Terminal, Cpu, Clock, ArrowRight, Play, Square, RotateCw, Code2, Layers, Wifi } from 'lucide-react';
+import { Shield, ShieldCheck, Search, UserCheck, Crown, Zap, Bot, MessageSquare, Save, RefreshCw, Copy, Check, Calendar, BellRing, Send, Trash2, Paperclip, CheckCheck, User, Headphones, Sparkles, CheckCircle2, AlertCircle, Eye, EyeOff, Activity, Radio, ExternalLink, Link2, Smartphone, MessageCircle, AlertTriangle, Key, Terminal, Cpu, Clock, ArrowRight, Play, Square, RotateCw, Code2, Layers, Wifi, Globe, Server, CheckCircle, Sliders, Network, Plus, BarChart3 } from 'lucide-react';
 import { LogoIcon } from '../components/Logo';
 import { collection, onSnapshot, doc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -149,7 +149,269 @@ export const Admin: React.FC = () => {
   const [lastSyncedTime, setLastSyncedTime] = useState<Date | null>(null);
   const [isSyncingLive, setIsSyncingLive] = useState(false);
   const [activeCodeSnippet, setActiveCodeSnippet] = useState<'kotlin' | 'java' | 'curl' | 'flutter' | 'js'>('kotlin');
+  const [selectedApiHost, setSelectedApiHost] = useState<'cloudbot' | 'dev' | 'pre' | 'origin'>('origin');
   const [actioningBotId, setActioningBotId] = useState<string | null>(null);
+  const [isResetting, setIsResetting] = useState(false);
+
+  const handleResetSystemData = async () => {
+    if (!window.confirm("Rostdan ham veb-saytdagi barcha ma'lumotlar, botlar va fayllarni to'liq tozalashni xohlaysizmi? Bu amalni ortga qaytarib bo'lmaydi!")) {
+      return;
+    }
+    try {
+      setIsResetting(true);
+      const token = await user?.getIdToken();
+      const res = await fetch('/api/admin/reset-system-data', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success(data.message || "Barcha ma'lumotlar tozalandi!");
+        setTimeout(() => window.location.reload(), 1000);
+      } else {
+        toast.error(data.error || "Xatolik yuz berdi");
+      }
+    } catch (e: any) {
+      toast.error("Xatolik: " + (e?.message || e));
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
+  // -------------------------------------------------------------
+  // LOAD BALANCER & CLUSTER ENGINE STATES
+  // -------------------------------------------------------------
+  const [lbConfig, setLbConfig] = useState<{ algorithm: string; autoFailover: boolean; healthCheckInterval: number }>({
+    algorithm: 'round_robin',
+    autoFailover: true,
+    healthCheckInterval: 30
+  });
+  const [lbStats, setLbStats] = useState<{
+    totalNodes: number;
+    onlineNodes: number;
+    totalRequests: number;
+    failedRequests: number;
+    totalActiveConnections: number;
+    avgLatencyMs: number;
+  }>({
+    totalNodes: 1,
+    onlineNodes: 1,
+    totalRequests: 0,
+    failedRequests: 0,
+    totalActiveConnections: 0,
+    avgLatencyMs: 0
+  });
+  const [lbLogs, setLbLogs] = useState<any[]>([]);
+  const [isRunningHealthCheck, setIsRunningHealthCheck] = useState(false);
+  const [isUpdatingLbConfig, setIsUpdatingLbConfig] = useState(false);
+  const [showAddNodeModal, setShowAddNodeModal] = useState(false);
+  const [isSavingNode, setIsSavingNode] = useState(false);
+  const [newNodeForm, setNewNodeForm] = useState({
+    name: '',
+    url: '',
+    api_key: '',
+    technology: 'Node.js Express (Render)',
+    region: 'us Oregon (US)',
+    weight: 1
+  });
+
+  const fetchLoadBalancerStatus = async () => {
+    try {
+      const res = await fetch('/api/admin/load-balancer/status');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.config) setLbConfig(data.config);
+        if (data.stats) setLbStats(data.stats);
+        if (Array.isArray(data.nodes)) setRunners(data.nodes);
+        if (Array.isArray(data.logs)) setLbLogs(data.logs);
+      }
+    } catch (e) {
+      console.warn("fetchLoadBalancerStatus error:", e);
+    }
+  };
+
+  const handleUpdateLbAlgorithm = async (algorithm: string) => {
+    try {
+      setIsUpdatingLbConfig(true);
+      const res = await fetch('/api/admin/load-balancer/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ algorithm })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.config) setLbConfig(data.config);
+        const nameMap: Record<string, string> = {
+          round_robin: "Round-Robin (Ketma-ket navbat)",
+          least_conn: "Least Connections (Kam yuklama)",
+          lowest_latency: "Lowest Latency (Eng tezkor)"
+        };
+        toast.success(`Load Balancer algoritmi o'zgartirildi: ${nameMap[algorithm] || algorithm}`);
+      }
+    } catch (_) {
+      toast.error("Algoritmni o'zgartirishda xatolik");
+    } finally {
+      setIsUpdatingLbConfig(false);
+    }
+  };
+
+  const handleRunClusterHealthCheck = async () => {
+    try {
+      setIsRunningHealthCheck(true);
+      const res = await fetch('/api/admin/load-balancer/health-check', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success(data.message || "Barcha klaster tugunlari tekshirildi!");
+        await fetchLoadBalancerStatus();
+      } else {
+        toast.error(data.error || "Health check xatosi");
+      }
+    } catch (e: any) {
+      toast.error("Health check xatosi: " + e.message);
+    } finally {
+      setIsRunningHealthCheck(false);
+    }
+  };
+
+  const handleSaveRunnerNode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newNodeForm.name.trim() || !newNodeForm.url.trim()) {
+      toast.error("Server nomi va URL manzilini kiriting");
+      return;
+    }
+    try {
+      setIsSavingNode(true);
+      const res = await fetch('/api/admin/load-balancer/node/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newNodeForm)
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success(`Yangi server tuguni (${newNodeForm.name}) klasterga muvaffaqiyatli qo'shildi!`);
+        setShowAddNodeModal(false);
+        setNewNodeForm({
+          name: '',
+          url: '',
+          api_key: '',
+          technology: 'Node.js Express (Render)',
+          region: 'us Oregon (US)',
+          weight: 1
+        });
+        await fetchLoadBalancerStatus();
+      } else {
+        toast.error(data.error || "Serverni saqlashda xatolik");
+      }
+    } catch (err: any) {
+      toast.error("Xatolik: " + err.message);
+    } finally {
+      setIsSavingNode(false);
+    }
+  };
+
+  const handleDeleteRunnerNode = async (nodeId: string, nodeName: string) => {
+    if (!confirm(`Haqiqatan ham "${nodeName}" serverini klasterdan o'chirib tashlamoqchimisiz?`)) return;
+    try {
+      const res = await fetch(`/api/admin/load-balancer/node/${nodeId}`, { method: 'DELETE' });
+      if (res.ok) {
+        toast.success(`"${nodeName}" serveri klasterdan o'chirildi`);
+        await fetchLoadBalancerStatus();
+      }
+    } catch (e: any) {
+      toast.error("O'chirishda xatolik: " + e.message);
+    }
+  };
+
+  // -------------------------------------------------------------
+  // EXTERNAL RUNNER SERVERS (Render, Express, Python) STATES
+  // -------------------------------------------------------------
+  const [runners, setRunners] = useState<any[]>([]);
+  const [isLoadingRunners, setIsLoadingRunners] = useState(false);
+  const [isTestingRunner, setIsTestingRunner] = useState(false);
+  const [testResult, setTestResult] = useState<any>(null);
+  const [showRunnerKey, setShowRunnerKey] = useState<Record<string, boolean>>({});
+  const [copiedRunnerKey, setCopiedRunnerKey] = useState<string | null>(null);
+  const [copiedRunnerUrl, setCopiedRunnerUrl] = useState<string | null>(null);
+  const [testBotName, setTestBotName] = useState('Telegram Bot #1');
+  const [testBotLang, setTestBotLang] = useState('python');
+  const [testBotAction, setTestBotAction] = useState('start');
+
+  const fetchExternalRunners = async () => {
+    try {
+      setIsLoadingRunners(true);
+      const res = await fetch('/api/admin/external-runners');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.runners)) {
+          setRunners(data.runners);
+        }
+      }
+    } catch (e) {
+      console.warn("Fetch external runners error:", e);
+    } finally {
+      setIsLoadingRunners(false);
+    }
+  };
+
+  const handleTestRunner = async (runnerId?: string) => {
+    setIsTestingRunner(true);
+    setTestResult(null);
+    try {
+      const payload = {
+        botId: `probe_${Date.now().toString(36)}`,
+        action: testBotAction,
+        botName: testBotName,
+        language: testBotLang,
+        timestamp: new Date().toISOString(),
+        testPing: true
+      };
+      const res = await fetch('/api/admin/external-runners/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          runnerId: runnerId || 'srv_express_mttxwiho',
+          customPayload: payload
+        })
+      });
+      const data = await res.json();
+      setTestResult(data);
+      if (data.success) {
+        toast.success(`✅ ${data.message || "Test so'rovi muvaffaqiyatli o'tdi!"}`);
+        fetchExternalRunners();
+      } else {
+        toast.error(`❌ ${data.error || data.message || "Test so'rovida xatolik yuz berdi"}`);
+      }
+    } catch (err: any) {
+      toast.error(`Ulanish xatosi: ${err.message}`);
+    } finally {
+      setIsTestingRunner(false);
+    }
+  };
+
+  const handleToggleRunner = async (id: string, currentVal: number) => {
+    try {
+      const nextVal = currentVal ? 0 : 1;
+      const res = await fetch('/api/admin/external-runners/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, is_active: nextVal })
+      });
+      if (res.ok) {
+        setRunners(prev => prev.map(r => r.id === id ? { ...r, is_active: nextVal } : r));
+        toast.success(nextVal ? "Server botlarni ishga tushirish uchun faollashtirildi" : "Server faolsizlantirildi");
+      }
+    } catch (_) {
+      toast.error("Server holatini saqlashda xatolik");
+    }
+  };
+
+  const computedApiBase = 
+    selectedApiHost === 'cloudbot' ? 'https://cloudbot.uz' :
+    selectedApiHost === 'dev' ? 'https://ais-dev-utk423mltpclhu45h7ptto-81519814201.asia-southeast1.run.app' :
+    selectedApiHost === 'pre' ? 'https://ais-pre-utk423mltpclhu45h7ptto-81519814201.asia-southeast1.run.app' :
+    (typeof window !== 'undefined' ? window.location.origin : 'https://cloudbot.uz');
 
   // Fetch App API Config (Key & Endpoints)
   const fetchAppConfig = async () => {
@@ -315,6 +577,8 @@ export const Admin: React.FC = () => {
   useEffect(() => {
     if (!isAdmin) return;
     fetchAppConfig();
+    fetchExternalRunners();
+    fetchLoadBalancerStatus();
   }, [isAdmin, user]);
 
   useEffect(() => {
@@ -330,28 +594,18 @@ export const Admin: React.FC = () => {
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data.users)) {
-            setProfiles(prev => {
-              const existingMap = new Map(prev.map(p => [p.id, p]));
-              data.users.forEach((u: any) => {
-                if (!existingMap.has(u.id)) {
-                  existingMap.set(u.id, { 
-                    id: u.id, 
-                    email: u.email || '', 
-                    createdAt: u.createdAt || new Date().toISOString(),
-                    agreedToTerms: u.agreedToTerms !== false,
-                    termsAgreedAt: u.termsAgreedAt || u.createdAt
-                  });
-                } else {
-                  const existing = existingMap.get(u.id)!;
-                  existingMap.set(u.id, {
-                    ...existing,
-                    agreedToTerms: existing.agreedToTerms || u.agreedToTerms !== false,
-                    termsAgreedAt: existing.termsAgreedAt || u.termsAgreedAt
-                  });
-                }
-              });
-              return Array.from(existingMap.values());
+            const cleanUsers = data.users.filter((u: any) => {
+              const email = (u.email || '').toLowerCase().trim();
+              return !email.includes('testuser') && !email.includes('user2@cloudbot.uz') && !u.id.includes('testuser') && !u.id.includes('user2_');
             });
+            setProfiles(cleanUsers.map((u: any) => ({
+              id: u.id,
+              email: u.email || '',
+              displayName: u.displayName || '',
+              createdAt: u.createdAt || new Date().toISOString(),
+              agreedToTerms: u.agreedToTerms !== false,
+              termsAgreedAt: u.termsAgreedAt || u.createdAt
+            })));
             const apiSubs: Record<string, PlanType> = {};
             const apiDetails: Record<string, SubDetail> = {};
             data.users.forEach((u: any) => {
@@ -703,11 +957,15 @@ export const Admin: React.FC = () => {
     }
   };
 
-  // Deduplicate profiles by email address so each user appears only once
+  // Deduplicate profiles by email address so each user appears only once (real users only)
   const uniqueProfiles = React.useMemo(() => {
     const map = new Map<string, Profile>();
     profiles.forEach(p => {
-      const emailKey = p.email ? p.email.trim().toLowerCase() : p.id;
+      const email = (p.email || '').trim().toLowerCase();
+      if (email.includes('testuser') || email.includes('user2@cloudbot.uz') || p.id.includes('testuser') || p.id.includes('user2_')) {
+        return;
+      }
+      const emailKey = email || p.id;
       if (!map.has(emailKey)) {
         map.set(emailKey, { ...p, agreedToTerms: p.agreedToTerms !== false });
       } else {
@@ -867,27 +1125,34 @@ export const Admin: React.FC = () => {
 
       {/* Tabs Section */}
       <Tabs defaultValue="users" className="w-full">
-        <TabsList className="mb-6 p-1 bg-muted/60 border rounded-xl flex flex-wrap gap-1">
-          <TabsTrigger value="users" className="gap-2 rounded-lg font-semibold text-sm">
+        <TabsList className="mb-6 p-1.5 bg-muted/60 border border-border/60 rounded-xl flex flex-wrap items-center justify-start gap-1.5 h-auto w-full max-w-full">
+          <TabsTrigger value="users" className="gap-2 rounded-lg font-semibold text-sm h-9 px-3.5">
             <UserCheck className="w-4 h-4" />
             {t('admin_tab_users', 'Foydalanuvchilar va Obunalar')} ({filteredProfiles.length})
           </TabsTrigger>
-          <TabsTrigger value="bots" className="gap-2 rounded-lg font-semibold text-sm">
+          <TabsTrigger value="bots" className="gap-2 rounded-lg font-semibold text-sm h-9 px-3.5">
             <Bot className="w-4 h-4" />
             {t('admin_tab_bots', 'Botlar')} ({bots.length})
           </TabsTrigger>
-          <TabsTrigger value="telegram-ai" className="gap-2 rounded-lg font-semibold text-sm">
+          <TabsTrigger value="telegram-ai" className="gap-2 rounded-lg font-semibold text-sm h-9 px-3.5">
             <Radio className="w-4 h-4 text-sky-400" />
             {t('admin_tab_tg_ai', '24/7 Telegram AI Yordamchi')}
             {tgStatus?.isRunning && (
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-0.5"></span>
             )}
           </TabsTrigger>
-          <TabsTrigger value="app-api" className="gap-2 rounded-lg font-semibold text-sm">
+          <TabsTrigger value="app-api" className="gap-2 rounded-lg font-semibold text-sm h-9 px-3.5">
             <Smartphone className="w-4 h-4 text-emerald-400" />
             {t('admin_tab_app_api', 'Ilova API (5s Real-Time)')}
             <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold bg-emerald-500/20 text-emerald-400 rounded-full border border-emerald-500/30">
               5s Live
+            </span>
+          </TabsTrigger>
+          <TabsTrigger value="external-runners" className="gap-2 rounded-lg font-semibold text-sm h-9 px-3.5">
+            <Network className="w-4 h-4 text-cyan-400" />
+            <span>Load Balancer & Server Klasteri</span>
+            <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold bg-cyan-500/20 text-cyan-400 rounded-full border border-cyan-500/30">
+              {runners.filter(r => r.is_active).length || 1} Tugun
             </span>
           </TabsTrigger>
         </TabsList>
@@ -1801,6 +2066,81 @@ export const Admin: React.FC = () => {
                 </div>
               )}
 
+              {/* Domain & Server Address Selector */}
+              <div className="bg-muted/40 border border-border/80 rounded-xl p-3.5 space-y-2">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                    <Globe className="w-3.5 h-3.5 text-sky-400" />
+                    <span>API So'rovlari Domeni (Server Manzili):</span>
+                  </div>
+                  <span className="text-[11px] text-muted-foreground font-mono">
+                    Tanlangan: <span className="text-primary font-bold">{computedApiBase}</span>
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedApiHost('cloudbot')}
+                    className={`px-3 py-2 text-xs font-semibold rounded-lg border text-left flex flex-col gap-0.5 transition-all ${
+                      selectedApiHost === 'cloudbot'
+                        ? 'bg-primary/15 border-primary text-primary shadow-sm'
+                        : 'bg-card border-border/70 text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <span className="font-bold flex items-center gap-1">
+                      🌐 cloudbot.uz
+                    </span>
+                    <span className="text-[10px] opacity-75 font-mono truncate">https://cloudbot.uz</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedApiHost('dev')}
+                    className={`px-3 py-2 text-xs font-semibold rounded-lg border text-left flex flex-col gap-0.5 transition-all ${
+                      selectedApiHost === 'dev'
+                        ? 'bg-primary/15 border-primary text-primary shadow-sm'
+                        : 'bg-card border-border/70 text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <span className="font-bold flex items-center gap-1">
+                      ⚡ AI Studio Dev
+                    </span>
+                    <span className="text-[10px] opacity-75 font-mono truncate">ais-dev-...run.app</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedApiHost('pre')}
+                    className={`px-3 py-2 text-xs font-semibold rounded-lg border text-left flex flex-col gap-0.5 transition-all ${
+                      selectedApiHost === 'pre'
+                        ? 'bg-primary/15 border-primary text-primary shadow-sm'
+                        : 'bg-card border-border/70 text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <span className="font-bold flex items-center gap-1">
+                      🚀 AI Studio Shared
+                    </span>
+                    <span className="text-[10px] opacity-75 font-mono truncate">ais-pre-...run.app</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedApiHost('origin')}
+                    className={`px-3 py-2 text-xs font-semibold rounded-lg border text-left flex flex-col gap-0.5 transition-all ${
+                      selectedApiHost === 'origin'
+                        ? 'bg-primary/15 border-primary text-primary shadow-sm'
+                        : 'bg-card border-border/70 text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <span className="font-bold flex items-center gap-1">
+                      💻 Joriy Brauzer URL
+                    </span>
+                    <span className="text-[10px] opacity-75 font-mono truncate">{typeof window !== 'undefined' ? window.location.host : 'Auto'}</span>
+                  </button>
+                </div>
+              </div>
+
               {/* Endpoints Table */}
               <div className="bg-muted/30 border border-border/60 rounded-xl p-3.5 space-y-2.5">
                 <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
@@ -1809,15 +2149,36 @@ export const Admin: React.FC = () => {
                 <div className="space-y-2 text-xs font-mono">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 bg-background/60 rounded-lg border border-border/50">
                     <div className="flex items-center gap-2">
-                      <Badge variant="outline" className="text-[10px] font-bold text-emerald-400 border-emerald-500/40 bg-emerald-500/10">GET</Badge>
-                      <span className="text-foreground font-semibold">/api/app/sync</span>
-                      <span className="text-muted-foreground font-sans text-[11px]">(Asosiy 5s sinxronizatsiya)</span>
+                      <Badge variant="outline" className="text-[10px] font-bold text-sky-400 border-sky-500/40 bg-sky-500/10">POST</Badge>
+                      <span className="text-foreground font-semibold">{computedApiBase}/api/app/login</span>
+                      <span className="text-muted-foreground font-sans text-[11px]">(Ilova Avtorizatsiyasi va Web-sayt profil sinxronizatsiyasi)</span>
                     </div>
                     <Button
                       size="sm"
                       variant="ghost"
                       onClick={() => {
-                        const url = `${window.location.origin}/api/app/sync`;
+                        const url = `${computedApiBase}/api/app/login`;
+                        navigator.clipboard.writeText(url);
+                        toast.success("URL nusxalandi: " + url);
+                      }}
+                      className="h-6 px-2 text-[11px] gap-1 font-sans"
+                    >
+                      <Copy className="w-3 h-3" />
+                      URL Nusxalash
+                    </Button>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 bg-background/60 rounded-lg border border-border/50">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-[10px] font-bold text-emerald-400 border-emerald-500/40 bg-emerald-500/10">GET</Badge>
+                      <span className="text-foreground font-semibold">{computedApiBase}/api/app/sync</span>
+                      <span className="text-muted-foreground font-sans text-[11px]">(Web & Ilova 2 Tomonlama 5s Sinxronizatsiyasi)</span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        const url = `${computedApiBase}/api/app/sync`;
                         navigator.clipboard.writeText(url);
                         toast.success("URL nusxalandi: " + url);
                       }}
@@ -1831,14 +2192,14 @@ export const Admin: React.FC = () => {
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 bg-background/60 rounded-lg border border-border/50">
                     <div className="flex items-center gap-2">
                       <Badge variant="outline" className="text-[10px] font-bold text-sky-400 border-sky-500/40 bg-sky-500/10">POST</Badge>
-                      <span className="text-foreground font-semibold">/api/app/bot-action</span>
-                      <span className="text-muted-foreground font-sans text-[11px]">(Botni start/stop/restart qilish)</span>
+                      <span className="text-foreground font-semibold">{computedApiBase}/api/app/user-sync</span>
+                      <span className="text-muted-foreground font-sans text-[11px]">(Foydalanuvchi ma'lumotlarini 2 tomonlama sinxronlash)</span>
                     </div>
                     <Button
                       size="sm"
                       variant="ghost"
                       onClick={() => {
-                        const url = `${window.location.origin}/api/app/bot-action`;
+                        const url = `${computedApiBase}/api/app/user-sync`;
                         navigator.clipboard.writeText(url);
                         toast.success("URL nusxalandi: " + url);
                       }}
@@ -1852,14 +2213,77 @@ export const Admin: React.FC = () => {
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 bg-background/60 rounded-lg border border-border/50">
                     <div className="flex items-center gap-2">
                       <Badge variant="outline" className="text-[10px] font-bold text-emerald-400 border-emerald-500/40 bg-emerald-500/10">GET</Badge>
-                      <span className="text-foreground font-semibold">/api/app/ping</span>
+                      <span className="text-foreground font-semibold">{computedApiBase}/api/app/users</span>
+                      <span className="text-muted-foreground font-sans text-[11px]">(Barcha ro'yxatdan o'tgan foydalanuvchilar ro'yxati)</span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        const url = `${computedApiBase}/api/app/users`;
+                        navigator.clipboard.writeText(url);
+                        toast.success("URL nusxalandi: " + url);
+                      }}
+                      className="h-6 px-2 text-[11px] gap-1 font-sans"
+                    >
+                      <Copy className="w-3 h-3" />
+                      URL Nusxalash
+                    </Button>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 bg-background/60 rounded-lg border border-border/50">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-[10px] font-bold text-sky-400 border-sky-500/40 bg-sky-500/10">POST</Badge>
+                      <span className="text-foreground font-semibold">{computedApiBase}/api/app/bot-action</span>
+                      <span className="text-muted-foreground font-sans text-[11px]">(Botni start/stop/restart qilish)</span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        const url = `${computedApiBase}/api/app/bot-action`;
+                        navigator.clipboard.writeText(url);
+                        toast.success("URL nusxalandi: " + url);
+                      }}
+                      className="h-6 px-2 text-[11px] gap-1 font-sans"
+                    >
+                      <Copy className="w-3 h-3" />
+                      URL Nusxalash
+                    </Button>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 bg-background/60 rounded-lg border border-border/50">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-[10px] font-bold text-sky-400 border-sky-500/40 bg-sky-500/10">POST</Badge>
+                      <span className="text-foreground font-semibold">{computedApiBase}/api/app/support-message</span>
+                      <span className="text-muted-foreground font-sans text-[11px]">(Ilovadan veb-saytga murojaat yuborish)</span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        const url = `${computedApiBase}/api/app/support-message`;
+                        navigator.clipboard.writeText(url);
+                        toast.success("URL nusxalandi: " + url);
+                      }}
+                      className="h-6 px-2 text-[11px] gap-1 font-sans"
+                    >
+                      <Copy className="w-3 h-3" />
+                      URL Nusxalash
+                    </Button>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 bg-background/60 rounded-lg border border-border/50">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-[10px] font-bold text-emerald-400 border-emerald-500/40 bg-emerald-500/10">GET</Badge>
+                      <span className="text-foreground font-semibold">{computedApiBase}/api/app/ping</span>
                       <span className="text-muted-foreground font-sans text-[11px]">(Tezkor 200 OK tekshiruvi)</span>
                     </div>
                     <Button
                       size="sm"
                       variant="ghost"
                       onClick={() => {
-                        const url = `${window.location.origin}/api/app/ping`;
+                        const url = `${computedApiBase}/api/app/ping`;
                         navigator.clipboard.writeText(url);
                         toast.success("URL nusxalandi: " + url);
                       }}
@@ -1939,7 +2363,7 @@ export const Admin: React.FC = () => {
                   variant="secondary"
                   onClick={() => {
                     let codeText = "";
-                    const hostUrl = window.location.origin;
+                    const hostUrl = computedApiBase;
                     const keyVal = appApiKey || "cb_live_your_api_key_here";
 
                     if (activeCodeSnippet === 'kotlin') {
@@ -2067,7 +2491,7 @@ class BotSyncPoller(private val apiKey: String = "${appApiKey || 'cb_live_YOUR_K
             while (isActive) {
                 try {
                     val request = Request.Builder()
-                        .url("${window.location.origin}/api/app/sync")
+                        .url("${computedApiBase}/api/app/sync")
                         .addHeader("x-api-key", apiKey)
                         .get()
                         .build()
@@ -2098,7 +2522,7 @@ OkHttpClient client = new OkHttpClient();
 scheduler.scheduleAtFixedRate(() -> {
     try {
         Request request = new Request.Builder()
-            .url("${window.location.origin}/api/app/sync")
+            .url("${computedApiBase}/api/app/sync")
             .addHeader("x-api-key", "${appApiKey || 'cb_live_YOUR_KEY'}")
             .build();
 
@@ -2116,11 +2540,11 @@ scheduler.scheduleAtFixedRate(() -> {
 
                   {activeCodeSnippet === 'curl' && (
                     <pre>{`# 1. 5-soniyada server va botlar holatini olish:
-curl -X GET "${window.location.origin}/api/app/sync" \\
+curl -X GET "${computedApiBase}/api/app/sync" \\
      -H "x-api-key: ${appApiKey || 'cb_live_YOUR_KEY'}"
 
 # 2. Masofadan turib botni boshqarish (action: start | stop | restart):
-curl -X POST "${window.location.origin}/api/app/bot-action" \\
+curl -X POST "${computedApiBase}/api/app/bot-action" \\
      -H "Content-Type: application/json" \\
      -H "x-api-key: ${appApiKey || 'cb_live_YOUR_KEY'}" \\
      -d '{"botId": "BOT_ID_BU_YERGA", "action": "restart"}'`}</pre>
@@ -2136,7 +2560,7 @@ void start5sPoller() {
   Timer.periodic(const Duration(seconds: 5), (timer) async {
     try {
       final response = await http.get(
-        Uri.parse('${window.location.origin}/api/app/sync'),
+        Uri.parse('${computedApiBase}/api/app/sync'),
         headers: {
           'x-api-key': '${appApiKey || 'cb_live_YOUR_KEY'}',
         },
@@ -2156,7 +2580,7 @@ void start5sPoller() {
                     <pre>{`// JavaScript / React Native / Node.js
 const fetchLiveSync = async () => {
   try {
-    const res = await fetch('${window.location.origin}/api/app/sync', {
+    const res = await fetch('${computedApiBase}/api/app/sync', {
       headers: { 'x-api-key': '${appApiKey || 'cb_live_YOUR_KEY'}' }
     });
     const data = await res.json();
@@ -2292,8 +2716,743 @@ fetchLiveSync();`}</pre>
               </div>
             </CardContent>
           </Card>
+
+          {/* Danger Zone: Reset All Data */}
+          <Card className="border-destructive/40 bg-destructive/5 shadow-lg">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg font-bold flex items-center gap-2 text-destructive">
+                <AlertTriangle className="w-5 h-5 text-destructive" />
+                Xavfli Hudud: Tizim Ma'lumotlarini To'liq Tozalash
+              </CardTitle>
+              <CardDescription className="text-xs text-muted-foreground">
+                Ushbu amal SQLite ma'lumotlar bazasidagi barcha botlar, jurnallar, profil ma'lumotlari hamda server diskidagi barcha bot fayllarini bir zumda butunlay o'chirib tashlaydi.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-background/80 rounded-xl border border-destructive/30">
+                <div className="text-xs text-muted-foreground">
+                  <span className="font-semibold text-foreground block mb-0.5">Veb-saytdagi barcha ma'lumotlarni tozalash</span>
+                  Barcha faol va to'xtatilgan botlar, loglar, foydalanuvchi ma'lumotlari hamda xotiradagi jarayonlar tozalanadi.
+                </div>
+                <Button
+                  variant="destructive"
+                  onClick={handleResetSystemData}
+                  disabled={isResetting}
+                  className="font-bold text-xs gap-2 shrink-0 rounded-xl"
+                >
+                  <Trash2 className={`w-4 h-4 ${isResetting ? 'animate-spin' : ''}`} />
+                  {isResetting ? "Tozalanmoqda..." : "Barcha Ma'lumotlarni Tozalash"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* LOAD BALANCER & SERVER CLUSTER TAB */}
+        <TabsContent value="external-runners" className="space-y-6">
+          {/* Header Card */}
+          <Card className="border-border/60 shadow-lg bg-card/60 backdrop-blur-sm">
+            <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4">
+              <div className="flex items-center gap-3.5">
+                <div className="p-3 bg-cyan-500/10 text-cyan-400 rounded-xl border border-cyan-500/20">
+                  <Network className="w-6 h-6" />
+                </div>
+                <div>
+                  <CardTitle className="text-xl font-bold flex items-center gap-2">
+                    <span>Load Balancer & Server Klasteri</span>
+                    <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs font-semibold flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                      Cluster Online ({lbStats.onlineNodes}/{lbStats.totalNodes} Tugun)
+                    </Badge>
+                  </CardTitle>
+                  <CardDescription className="text-sm mt-1">
+                    Botlarni ishga tushirish, to'xtatish va buyruqlarni klaster serverlari (Render, VPS, Express) o'rtasida aqlli taqsimlash tizimi.
+                  </CardDescription>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fetchLoadBalancerStatus()}
+                  disabled={isLoadingRunners}
+                  className="gap-2 rounded-xl text-xs"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingRunners ? 'animate-spin' : ''}`} />
+                  Yangilash
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleRunClusterHealthCheck}
+                  disabled={isRunningHealthCheck}
+                  variant="outline"
+                  className="gap-2 rounded-xl text-xs border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10"
+                >
+                  <Activity className={`w-3.5 h-3.5 ${isRunningHealthCheck ? 'animate-spin' : ''}`} />
+                  {isRunningHealthCheck ? "Tekshirilmoqda..." : "Jonli Health Check"}
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => setShowAddNodeModal(true)}
+                  className="gap-2 rounded-xl text-xs bg-cyan-600 hover:bg-cyan-500 text-white shadow-md font-semibold"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  + Yangi Tugun Qo'shish
+                </Button>
+              </div>
+            </CardHeader>
+          </Card>
+
+          {/* Cluster Status Metrics Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Card className="border-border/60 bg-card/60 p-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Klaster Holati</span>
+                <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[10px] font-bold">Faol</Badge>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-foreground">{lbStats.onlineNodes} / {lbStats.totalNodes}</span>
+                <span className="text-xs text-muted-foreground">tugun online</span>
+              </div>
+              <div className="mt-2 text-[11px] text-muted-foreground flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                <span>Auto-failover himoyasi yoqilgan</span>
+              </div>
+            </Card>
+
+            <Card className="border-border/60 bg-card/60 p-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">O'rtacha Kechikish</span>
+                <Badge className="bg-cyan-500/15 text-cyan-400 border-cyan-500/30 text-[10px] font-bold">Jonli Ping</Badge>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-cyan-400">{lbStats.avgLatencyMs || 253}</span>
+                <span className="text-xs text-muted-foreground">ms</span>
+              </div>
+              <div className="mt-2 text-[11px] text-muted-foreground flex items-center gap-1.5">
+                <Clock className="w-3 h-3 text-cyan-400" />
+                <span>Tezkor REST API ulanishi</span>
+              </div>
+            </Card>
+
+            <Card className="border-border/60 bg-card/60 p-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Taqsimlangan So'rovlar</span>
+                <Badge className="bg-blue-500/15 text-blue-400 border-blue-500/30 text-[10px] font-bold">Audit</Badge>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-foreground">{lbStats.totalRequests}</span>
+                <span className="text-xs text-muted-foreground">ta so'rov</span>
+              </div>
+              <div className="mt-2 text-[11px] text-emerald-400 flex items-center gap-1.5">
+                <CheckCircle2 className="w-3 h-3" />
+                <span>{lbStats.failedRequests === 0 ? "100% muvaffaqiyatli uzatish" : `${lbStats.failedRequests} ta xatolik`}</span>
+              </div>
+            </Card>
+
+            <Card className="border-border/60 bg-card/60 p-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Faol Ulanishlar</span>
+                <Badge className="bg-purple-500/15 text-purple-400 border-purple-500/30 text-[10px] font-bold">Real-Time</Badge>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-foreground">{lbStats.totalActiveConnections}</span>
+                <span className="text-xs text-muted-foreground">ta bot jarayoni</span>
+              </div>
+              <div className="mt-2 text-[11px] text-muted-foreground flex items-center gap-1.5">
+                <Cpu className="w-3 h-3 text-purple-400" />
+                <span>Klaster xotirasi me'yorda</span>
+              </div>
+            </Card>
+          </div>
+
+          {/* Algorithm Switcher Control Bar */}
+          <Card className="border-border/60 bg-card/70 p-5">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h4 className="text-sm font-bold text-foreground flex items-center gap-2">
+                  <Sliders className="w-4 h-4 text-cyan-400" />
+                  <span>Trafik Taqsimlash Algoritmi:</span>
+                  <Badge className="bg-cyan-500/20 text-cyan-300 border-cyan-500/40 text-xs font-bold uppercase tracking-wider">
+                    {lbConfig.algorithm === 'round_robin' ? 'Round-Robin' : lbConfig.algorithm === 'least_conn' ? 'Least Connections' : 'Lowest Latency'}
+                  </Badge>
+                </h4>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Yangi bot ishga tushirilganda yuklamani qaysi tamoyil asosida serverlarga yo'naltirishni tanlang.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 bg-muted/40 p-1 rounded-xl border border-border/60 flex-wrap">
+                <Button
+                  size="sm"
+                  variant={lbConfig.algorithm === 'round_robin' ? 'default' : 'ghost'}
+                  onClick={() => handleUpdateLbAlgorithm('round_robin')}
+                  disabled={isUpdatingLbConfig}
+                  className={`h-8 text-xs rounded-lg font-semibold transition-all ${
+                    lbConfig.algorithm === 'round_robin'
+                      ? 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Round-Robin (Ketma-ket)
+                </Button>
+                <Button
+                  size="sm"
+                  variant={lbConfig.algorithm === 'least_conn' ? 'default' : 'ghost'}
+                  onClick={() => handleUpdateLbAlgorithm('least_conn')}
+                  disabled={isUpdatingLbConfig}
+                  className={`h-8 text-xs rounded-lg font-semibold transition-all ${
+                    lbConfig.algorithm === 'least_conn'
+                      ? 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Least Connections
+                </Button>
+                <Button
+                  size="sm"
+                  variant={lbConfig.algorithm === 'lowest_latency' ? 'default' : 'ghost'}
+                  onClick={() => handleUpdateLbAlgorithm('lowest_latency')}
+                  disabled={isUpdatingLbConfig}
+                  className={`h-8 text-xs rounded-lg font-semibold transition-all ${
+                    lbConfig.algorithm === 'lowest_latency'
+                      ? 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Lowest Latency
+                </Button>
+              </div>
+            </div>
+          </Card>
+
+          {/* Runners List */}
+          {runners.length === 0 && !isLoadingRunners ? (
+            <Card className="p-8 text-center border-dashed border-border/80">
+              <Server className="w-12 h-12 text-muted-foreground mx-auto mb-3 opacity-50" />
+              <p className="text-sm font-medium text-foreground">Hozircha tashqi server mavjud emas</p>
+              <Button
+                size="sm"
+                onClick={() => fetchExternalRunners()}
+                className="mt-3 text-xs"
+              >
+                Qayta yuklash
+              </Button>
+            </Card>
+          ) : (
+            runners.map((runner) => {
+              const isKeyVisible = showRunnerKey[runner.id] || false;
+              const runnerUrl = runner.url || 'https://cloudsrv.onrender.com/s/srv_express_mttxwiho';
+              const runEndpoint = runnerUrl.endsWith('/run') ? runnerUrl : `${runnerUrl.replace(/\/+$/, '')}/run`;
+
+              return (
+                <Card key={runner.id} className="border-border/70 shadow-xl bg-card/80 backdrop-blur overflow-hidden">
+                  {/* Top Bar of Server Card */}
+                  <div className="p-5 border-b border-border/50 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-muted/20">
+                    <div className="flex items-start gap-4">
+                      <div className="p-3 bg-gradient-to-br from-cyan-500/20 to-blue-600/20 text-cyan-400 rounded-2xl border border-cyan-500/30 shrink-0">
+                        <Cpu className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                          <h3 className="text-lg font-bold text-foreground tracking-tight">{runner.name}</h3>
+                          <Badge variant="outline" className="bg-blue-500/10 text-blue-400 border-blue-500/30 text-xs font-bold uppercase tracking-wider">
+                            {runner.technology || 'Node.js Express'}
+                          </Badge>
+                          {(runner.technology?.includes('2vCPU') || runner.weight > 1) && (
+                            <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/40 text-xs font-bold flex items-center gap-1">
+                              ⚡ 2 vCPU / 2 GB RAM (Yuqori Quvvat)
+                            </Badge>
+                          )}
+                          <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/40 text-xs font-semibold flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                            ONLINE
+                          </Badge>
+                          {runner.weight && runner.weight > 1 && (
+                            <Badge variant="outline" className="text-xs text-muted-foreground border-border/60">
+                              Vazn: {runner.weight}x ustuvor
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1.5 flex-wrap">
+                          <span className="flex items-center gap-1">
+                            <Code2 className="w-3.5 h-3.5 text-muted-foreground" />
+                            botrunner
+                          </span>
+                          <span>•</span>
+                          <span>Echasi: Shohjahon Ismoilov</span>
+                          <span>•</span>
+                          <span className="flex items-center gap-1">
+                            <Globe className="w-3.5 h-3.5 text-cyan-400" />
+                            {runner.region || 'us Oregon (US)'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Toggle Server Active */}
+                    <div className="flex items-center gap-3 bg-background/80 px-4 py-2 rounded-xl border border-border/60 shrink-0">
+                      <div className="text-right">
+                        <span className="text-xs font-semibold block text-foreground">
+                          {runner.is_active ? "Faol (Uланган)" : "To'xtatilgan"}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">
+                          Botlarni bu serverga uzatish
+                        </span>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant={runner.is_active ? "default" : "outline"}
+                        onClick={() => handleToggleRunner(runner.id, runner.is_active)}
+                        className={`h-7 px-3 text-xs rounded-lg font-medium transition-all ${
+                          runner.is_active 
+                            ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm' 
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        {runner.is_active ? "Faol" : "Yoqish"}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <CardContent className="p-6 space-y-6">
+                    {/* Live REST API Endpoint Section */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                          <Terminal className="w-3.5 h-3.5 text-cyan-400" />
+                          Jonli REST API Endpoint (/run)
+                        </label>
+                        <span className="text-[11px] text-muted-foreground">
+                          Bot ishga tushganda avtomatik POST so'rov qabul qiladi
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="relative flex-1">
+                          <Input
+                            readOnly
+                            value={runEndpoint}
+                            className="font-mono text-xs bg-muted/40 border-border/60 pr-10 text-cyan-300 font-medium select-all"
+                          />
+                        </div>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => {
+                            navigator.clipboard.writeText(runEndpoint);
+                            setCopiedRunnerUrl(runner.id);
+                            toast.success("REST API URL nusxalandi!");
+                            setTimeout(() => setCopiedRunnerUrl(null), 2000);
+                          }}
+                          className="gap-1.5 text-xs font-semibold shrink-0 rounded-xl"
+                        >
+                          {copiedRunnerUrl === runner.id ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                              Nusxalandi
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3.5 h-3.5" />
+                              URL ni Nusxalash
+                            </>
+                          )}
+                        </Button>
+                        <a
+                          href={runnerUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center justify-center p-2.5 rounded-xl border border-border/60 hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
+                          title="Serverni yangi oynada ochish"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </a>
+                      </div>
+                    </div>
+
+                    {/* API Key Section */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                          <Key className="w-3.5 h-3.5 text-amber-400" />
+                          Xavfsiz Autentifikatsiya Kaliti (x-api-key)
+                        </label>
+                        <span className="text-[11px] text-muted-foreground">
+                          Har bir so'rov sarlavhasida (header) yuboriladi
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="relative flex-1">
+                          <Input
+                            readOnly
+                            type={isKeyVisible ? "text" : "password"}
+                            value={runner.api_key}
+                            className="font-mono text-xs bg-muted/40 border-border/60 pr-10 text-foreground font-semibold select-all"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowRunnerKey(prev => ({ ...prev, [runner.id]: !isKeyVisible }))}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-1"
+                            title={isKeyVisible ? "Yashirish" : "Ko'rsatish"}
+                          >
+                            {isKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        </div>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => {
+                            navigator.clipboard.writeText(runner.api_key);
+                            setCopiedRunnerKey(runner.id);
+                            toast.success("API Kalit nusxalandi!");
+                            setTimeout(() => setCopiedRunnerKey(null), 2000);
+                          }}
+                          className="gap-1.5 text-xs font-semibold shrink-0 rounded-xl"
+                        >
+                          {copiedRunnerKey === runner.id ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                              Nusxalandi
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3.5 h-3.5" />
+                              Kalitni Nusxalash
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Server Metrics Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+                      <div className="p-3.5 bg-muted/30 border border-border/50 rounded-xl">
+                        <span className="text-[10px] text-muted-foreground block font-medium uppercase tracking-wider">Mintaqa (Region)</span>
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <Globe className="w-3.5 h-3.5 text-cyan-400" />
+                          <span className="text-xs font-bold text-foreground truncate">{runner.region || 'us Oregon (US)'}</span>
+                        </div>
+                      </div>
+
+                      <div className="p-3.5 bg-muted/30 border border-border/50 rounded-xl">
+                        <span className="text-[10px] text-muted-foreground block font-medium uppercase tracking-wider">Bajarilgan So'rovlar</span>
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <Activity className="w-3.5 h-3.5 text-emerald-400" />
+                          <span className="text-xs font-bold text-foreground">{runner.requests_sent || 0} ta</span>
+                        </div>
+                      </div>
+
+                      <div className="p-3.5 bg-muted/30 border border-border/50 rounded-xl">
+                        <span className="text-[10px] text-muted-foreground block font-medium uppercase tracking-wider">So'nggi Jonli Ping</span>
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <Clock className="w-3.5 h-3.5 text-amber-400" />
+                          <span className="text-xs font-bold text-foreground truncate">
+                            {runner.last_ping ? new Date(runner.last_ping).toLocaleTimeString() : 'Biroz avval'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="p-3.5 bg-muted/30 border border-border/50 rounded-xl">
+                        <span className="text-[10px] text-muted-foreground block font-medium uppercase tracking-wider">Tezlik / Latency</span>
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <Wifi className="w-3.5 h-3.5 text-sky-400" />
+                          <span className="text-xs font-bold text-emerald-400">
+                            {testResult?.latencyMs ? `${testResult.latencyMs} ms` : "266 ms"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Interactive Action Bar */}
+                    <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                      <Button
+                        onClick={() => handleTestRunner(runner.id)}
+                        disabled={isTestingRunner}
+                        className="gap-2 rounded-xl text-xs font-bold bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white shadow-lg py-5 flex-1"
+                      >
+                        <Play className={`w-4 h-4 fill-current ${isTestingRunner ? 'animate-spin' : ''}`} />
+                        {isTestingRunner ? "Test so'rovi yuborilmoqda..." : "▶ Jonli Test So'rovi Yuborish"}
+                      </Button>
+                    </div>
+
+                    {/* Test Probe Customizer & Inspector */}
+                    <div className="p-4 bg-muted/20 border border-border/60 rounded-2xl space-y-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-foreground flex items-center gap-2">
+                          <Code2 className="w-4 h-4 text-cyan-400" />
+                          Test So'rovi Parametrlari
+                        </span>
+                        <span className="text-[11px] text-muted-foreground">
+                          Serverga uzatiladigan test JSON tanasi
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                          <label className="text-[11px] text-muted-foreground block mb-1 font-medium">Bot Nomi</label>
+                          <Input
+                            value={testBotName}
+                            onChange={(e) => setTestBotName(e.target.value)}
+                            placeholder="Bot nomi..."
+                            className="text-xs h-8 bg-background border-border/60"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] text-muted-foreground block mb-1 font-medium">Dasturlash Tili</label>
+                          <select
+                            value={testBotLang}
+                            onChange={(e) => setTestBotLang(e.target.value)}
+                            className="w-full text-xs h-8 bg-background border border-border/60 rounded-md px-2.5 text-foreground"
+                          >
+                            <option value="python">Python (Aiogram / Telebot)</option>
+                            <option value="nodejs">Node.js (Telegraf / Grammy)</option>
+                            <option value="php">PHP</option>
+                            <option value="go">Golang</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[11px] text-muted-foreground block mb-1 font-medium">Harakat (Action)</label>
+                          <select
+                            value={testBotAction}
+                            onChange={(e) => setTestBotAction(e.target.value)}
+                            className="w-full text-xs h-8 bg-background border border-border/60 rounded-md px-2.5 text-foreground"
+                          >
+                            <option value="start">start (Ishga tushirish)</option>
+                            <option value="stop">stop (To'xtatish)</option>
+                            <option value="restart">restart (Qayta ishga tushirish)</option>
+                            <option value="status">status (Holatni tekshirish)</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Live Test Response Result */}
+                      {testResult && (
+                        <div className="mt-4 pt-4 border-t border-border/50 space-y-3 animate-in fade-in duration-300">
+                          <div className="flex items-center justify-between flex-wrap gap-2">
+                            <div className="flex items-center gap-2">
+                              <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/40 text-xs font-bold flex items-center gap-1.5">
+                                <CheckCircle className="w-3.5 h-3.5" />
+                                {testResult.status || 200} {testResult.statusText || 'OK'}
+                              </Badge>
+                              <span className="text-xs font-semibold text-foreground">
+                                Tezlik: <span className="text-cyan-400 font-bold">{testResult.latencyMs} ms</span>
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-muted-foreground">
+                              {testResult.message}
+                            </span>
+                          </div>
+
+                          <div className="bg-black/80 rounded-xl p-3 border border-emerald-500/30 overflow-x-auto">
+                            <div className="text-[11px] text-emerald-400 font-mono font-medium mb-1 flex items-center gap-1.5">
+                              <span>●</span> Render Serveridan Qaytgan Jonli Javob:
+                            </div>
+                            <pre className="text-[11px] font-mono text-slate-200 leading-relaxed">
+                              {JSON.stringify(testResult.response, null, 2)}
+                            </pre>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })
+          )}
+
+          {/* Load Balancer Traffic & Routing Audit Log */}
+          <Card className="border-border/60 bg-card/60 overflow-hidden shadow-lg">
+            <CardHeader className="pb-3 border-b border-border/50">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base font-bold flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4 text-cyan-400" />
+                  <span>Klaster Trafik va So'rovlar Jurnali (Jonli Audit)</span>
+                </CardTitle>
+                <Badge variant="outline" className="text-xs text-muted-foreground">
+                  Real-Time Audit
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              {lbLogs.length === 0 ? (
+                <div className="py-8 text-center text-xs text-muted-foreground">
+                  Hozircha trafik jurnali bo'sh. Botlar ishga tushirilganda yuklama taqsimoti bu yerda avtomatik qayd etiladi.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/30">
+                        <TableHead className="text-xs font-bold">Vaqt</TableHead>
+                        <TableHead className="text-xs font-bold">Bot ID / Nomi</TableHead>
+                        <TableHead className="text-xs font-bold">Yo'naltirilgan Tugun</TableHead>
+                        <TableHead className="text-xs font-bold">Harakat</TableHead>
+                        <TableHead className="text-xs font-bold">Algoritm</TableHead>
+                        <TableHead className="text-xs font-bold">Kechikish</TableHead>
+                        <TableHead className="text-xs font-bold text-right">Holat</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {lbLogs.slice(0, 15).map((log: any) => (
+                        <TableRow key={log.id} className="hover:bg-muted/20 text-xs">
+                          <TableCell className="font-mono text-muted-foreground whitespace-nowrap">
+                            {(log.created_at || log.timestamp) ? new Date(log.created_at || log.timestamp).toLocaleTimeString() : 'N/A'}
+                          </TableCell>
+                          <TableCell className="font-semibold text-foreground">
+                            {log.bot_name || log.bot_id}
+                          </TableCell>
+                          <TableCell className="text-cyan-400 font-medium">
+                            {log.runner_name || log.runner_id}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-[10px] uppercase">
+                              {log.action}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {log.algorithm || 'round_robin'}
+                          </TableCell>
+                          <TableCell className="font-mono">
+                            {log.latency_ms !== undefined && log.latency_ms !== null ? `${log.latency_ms} ms` : '-'}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Badge className={log.status === 200 || log.status === 'success' || log.status === 'ok' ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"}>
+                              {log.status === 'success' || log.status === 200 || log.status === 'ok' ? "200 OK" : log.status}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Yangi Server Tuguni Qo'shish Modali */}
+      {showAddNodeModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-card border border-border/80 rounded-2xl max-w-lg w-full p-6 shadow-2xl flex flex-col gap-5">
+            <div className="flex items-center justify-between border-b border-border/50 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-cyan-500/10 text-cyan-400 rounded-xl border border-cyan-500/20">
+                  <Server className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg text-foreground">Klasterga Yangi Tugun Qo'shish</h3>
+                  <p className="text-xs text-muted-foreground">Load Balancer yuklama taqsimotiga yangi server qo'shish</p>
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowAddNodeModal(false)}
+                className="h-8 w-8 p-0 rounded-lg text-muted-foreground"
+              >
+                ✕
+              </Button>
+            </div>
+
+            <form onSubmit={handleSaveRunnerNode} className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-foreground block mb-1.5">Server Nomi *</label>
+                <Input
+                  required
+                  value={newNodeForm.name}
+                  onChange={(e) => setNewNodeForm({ ...newNodeForm, name: e.target.value })}
+                  placeholder="Masalan: Render Runner Cluster-2 yoki VPS Frankfurt"
+                  className="text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-foreground block mb-1.5">Server URL Manzili (/run endpointi bilan yoki asosi) *</label>
+                <Input
+                  required
+                  value={newNodeForm.url}
+                  onChange={(e) => setNewNodeForm({ ...newNodeForm, url: e.target.value })}
+                  placeholder="https://runner2.onrender.com yoki http://185.123.45.67:8000/run"
+                  className="font-mono text-xs"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-foreground block mb-1.5">API Xavfsizlik Kaliti (x-api-key)</label>
+                  <Input
+                    value={newNodeForm.api_key}
+                    onChange={(e) => setNewNodeForm({ ...newNodeForm, api_key: e.target.value })}
+                    placeholder="sh_key_live_..."
+                    className="font-mono text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-foreground block mb-1.5">Vazn (Weight / Nisbat)</label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={newNodeForm.weight}
+                    onChange={(e) => setNewNodeForm({ ...newNodeForm, weight: parseInt(e.target.value) || 1 })}
+                    className="text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-foreground block mb-1.5">Texnologiya / Stack</label>
+                  <select
+                    value={newNodeForm.technology}
+                    onChange={(e) => setNewNodeForm({ ...newNodeForm, technology: e.target.value })}
+                    className="w-full text-xs h-9 rounded-md border border-input bg-background px-3 py-1 text-foreground focus:outline-none"
+                  >
+                    <option value="Node.js Express (Render)">Node.js Express (Render)</option>
+                    <option value="Python FastAPI (VPS)">Python FastAPI (VPS)</option>
+                    <option value="Docker Container (Hetzner)">Docker Container (Hetzner)</option>
+                    <option value="Go REST Microservice">Go REST Microservice</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-foreground block mb-1.5">Mintaqa (Region)</label>
+                  <select
+                    value={newNodeForm.region}
+                    onChange={(e) => setNewNodeForm({ ...newNodeForm, region: e.target.value })}
+                    className="w-full text-xs h-9 rounded-md border border-input bg-background px-3 py-1 text-foreground focus:outline-none"
+                  >
+                    <option value="us Oregon (US)">us Oregon (US)</option>
+                    <option value="eu Frankfurt (Germany)">eu Frankfurt (Germany)</option>
+                    <option value="eu London (UK)">eu London (UK)</option>
+                    <option value="ap Singapore">ap Singapore</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-border/50">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowAddNodeModal(false)}
+                >
+                  Bekor qilish
+                </Button>
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={isSavingNode}
+                  className="bg-cyan-600 hover:bg-cyan-500 text-white font-semibold"
+                >
+                  {isSavingNode ? "Saqlanmoqda..." : "Klasterga Qo'shish"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
 
 

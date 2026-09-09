@@ -1,4 +1,5 @@
 import express from "express";
+import cors from "cors";
 import path from "path";
 import compression from "compression";
 import { createServer as createViteServer } from "vite";
@@ -136,6 +137,7 @@ function createOrRepairDatabase(dbPath: string) {
       database.exec(`CREATE TABLE IF NOT EXISTS profiles (
           user_id TEXT PRIMARY KEY,
           email TEXT,
+          password TEXT,
           displayName TEXT,
           photoURL TEXT,
           createdAt TEXT,
@@ -144,6 +146,9 @@ function createOrRepairDatabase(dbPath: string) {
           termsAgreedAt TEXT
       )`);
 
+      try {
+        database.exec(`ALTER TABLE profiles ADD COLUMN password TEXT;`);
+      } catch (_) {}
       try {
         database.exec(`ALTER TABLE profiles ADD COLUMN agreedToTerms INTEGER DEFAULT 1;`);
       } catch (_) {}
@@ -201,6 +206,110 @@ function createOrRepairDatabase(dbPath: string) {
           text TEXT,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )`);
+
+      database.exec(`CREATE TABLE IF NOT EXISTS external_runners (
+          id TEXT PRIMARY KEY,
+          name TEXT,
+          url TEXT,
+          api_key TEXT,
+          technology TEXT,
+          status TEXT DEFAULT 'online',
+          region TEXT DEFAULT 'us Oregon (US)',
+          is_active INTEGER DEFAULT 1,
+          weight INTEGER DEFAULT 1,
+          active_connections INTEGER DEFAULT 0,
+          latency_ms INTEGER DEFAULT 0,
+          requests_sent INTEGER DEFAULT 0,
+          failed_requests INTEGER DEFAULT 0,
+          last_ping TEXT,
+          last_health_check TEXT,
+          created_at TEXT
+      )`);
+
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS load_balancer_config (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        );
+        CREATE TABLE IF NOT EXISTS load_balancer_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            runner_id TEXT,
+            runner_name TEXT,
+            bot_id TEXT,
+            bot_name TEXT,
+            action TEXT,
+            status TEXT,
+            latency_ms INTEGER,
+            message TEXT,
+            timestamp TEXT
+        );
+      `);
+
+      try {
+        const cols = database.prepare("PRAGMA table_info(external_runners)").all().map((c: any) => c.name);
+        if (!cols.includes("weight")) database.prepare("ALTER TABLE external_runners ADD COLUMN weight INTEGER DEFAULT 1").run();
+        if (!cols.includes("active_connections")) database.prepare("ALTER TABLE external_runners ADD COLUMN active_connections INTEGER DEFAULT 0").run();
+        if (!cols.includes("latency_ms")) database.prepare("ALTER TABLE external_runners ADD COLUMN latency_ms INTEGER DEFAULT 0").run();
+        if (!cols.includes("failed_requests")) database.prepare("ALTER TABLE external_runners ADD COLUMN failed_requests INTEGER DEFAULT 0").run();
+        if (!cols.includes("last_health_check")) database.prepare("ALTER TABLE external_runners ADD COLUMN last_health_check TEXT").run();
+
+        database.prepare("INSERT OR IGNORE INTO load_balancer_config (key, value) VALUES ('algorithm', 'round_robin')").run();
+        database.prepare("INSERT OR IGNORE INTO load_balancer_config (key, value) VALUES ('auto_failover', '1')").run();
+        database.prepare("INSERT OR IGNORE INTO load_balancer_config (key, value) VALUES ('health_check_interval', '30')").run();
+      } catch (_) {}
+
+      try {
+        const existingRunner = database.prepare("SELECT id FROM external_runners WHERE id = ?").get('srv_express_mttxwiho');
+        if (!existingRunner) {
+          database.prepare(`
+            INSERT INTO external_runners (id, name, url, api_key, technology, status, region, is_active, weight, active_connections, latency_ms, requests_sent, failed_requests, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, 0, 0, 0, 0, ?)
+          `).run(
+            'srv_express_mttxwiho',
+            'bot1',
+            'https://cloudsrv.onrender.com/s/srv_express_mttxwiho',
+            'sh_key_live_amkjqqs9v2',
+            'Node.js Express (Render)',
+            'online',
+            'us Oregon (US)',
+            new Date().toISOString()
+          );
+        }
+
+        const existingRunner2 = database.prepare("SELECT id FROM external_runners WHERE id = ?").get('srv_express_mtu5v83g');
+        if (!existingRunner2) {
+          database.prepare(`
+            INSERT INTO external_runners (id, name, url, api_key, technology, status, region, is_active, weight, active_connections, latency_ms, requests_sent, failed_requests, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, 0, 0, 0, 0, ?)
+          `).run(
+            'srv_express_mtu5v83g',
+            'Bot2',
+            'https://cloudsrv-in3u.onrender.com/s/srv_express_mtu5v83g',
+            'sh_key_live_unm0e6drmrh',
+            'Node.js Express (Render)',
+            'online',
+            'eu Frankfurt (EU)',
+            '2026-09-09T13:55:38.044Z'
+          );
+        }
+
+        const existingRunner3 = database.prepare("SELECT id FROM external_runners WHERE id = ?").get('srv_express_mtu6fgsz');
+        if (!existingRunner3) {
+          database.prepare(`
+            INSERT INTO external_runners (id, name, url, api_key, technology, status, region, is_active, weight, active_connections, latency_ms, requests_sent, failed_requests, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1, 3, 0, 0, 0, 0, ?)
+          `).run(
+            'srv_express_mtu6fgsz',
+            'HighPerf-2vCPU (Singapore)',
+            'https://cloudsrv-production.up.railway.app/s/srv_express_mtu6fgsz',
+            'sh_key_live_1l5csmz9tz',
+            'Node.js Express (Railway 2vCPU / 2GB RAM)',
+            'online',
+            'ap Singapore (ASIA)',
+            '2026-09-09T14:11:22.451Z'
+          );
+        }
+      } catch (_) {}
 
       // Performance Optimization: Targeted high-speed Indexes
       database.exec(`
@@ -1012,6 +1121,246 @@ function validateBotCodeSyntax(botDir: string, activeLanguage: string, activeEnt
   return { valid: true };
 }
 
+// -------------------------------------------------------------
+// LOAD BALANCER & RUNNER CLUSTER ENGINE
+// -------------------------------------------------------------
+interface RunnerNode {
+  id: string;
+  name: string;
+  url: string;
+  api_key: string;
+  technology: string;
+  status: string; // 'online' | 'degraded' | 'offline'
+  region: string;
+  is_active: number;
+  weight: number;
+  active_connections: number;
+  latency_ms: number;
+  requests_sent: number;
+  failed_requests: number;
+  last_ping: string | null;
+  last_health_check: string | null;
+  created_at: string;
+}
+
+let lbRoundRobinIndex = 0;
+
+function getLoadBalancerConfig() {
+  try {
+    const rows = db.prepare("SELECT key, value FROM load_balancer_config").all() as any[];
+    const map = Object.fromEntries(rows.map(r => [r.key, r.value]));
+    return {
+      algorithm: map.algorithm || 'round_robin', // 'round_robin' | 'least_conn' | 'lowest_latency'
+      autoFailover: map.auto_failover !== '0',
+      healthCheckInterval: parseInt(map.health_check_interval || '30', 10)
+    };
+  } catch (_) {
+    return { algorithm: 'round_robin', autoFailover: true, healthCheckInterval: 30 };
+  }
+}
+
+function selectRunnerNode(): RunnerNode | null {
+  try {
+    const activeNodes = db.prepare("SELECT * FROM external_runners WHERE is_active = 1").all() as RunnerNode[];
+    if (!activeNodes || activeNodes.length === 0) return null;
+
+    let candidates = activeNodes.filter(n => n.status === 'online');
+    if (candidates.length === 0) {
+      candidates = activeNodes.filter(n => n.status !== 'offline');
+    }
+    if (candidates.length === 0) {
+      candidates = activeNodes;
+    }
+
+    const { algorithm } = getLoadBalancerConfig();
+
+    if (algorithm === 'least_conn') {
+      candidates.sort((a, b) => (a.active_connections - b.active_connections) || ((a.latency_ms || 0) - (b.latency_ms || 0)));
+      return candidates[0];
+    } else if (algorithm === 'lowest_latency') {
+      const withLatency = candidates.filter(c => (c.latency_ms || 0) > 0);
+      if (withLatency.length > 0) {
+        withLatency.sort((a, b) => (a.latency_ms || 0) - (b.latency_ms || 0));
+        return withLatency[0];
+      }
+      return candidates[0];
+    } else {
+      // Default: Round-Robin
+      lbRoundRobinIndex = (lbRoundRobinIndex + 1) % candidates.length;
+      return candidates[lbRoundRobinIndex] || candidates[0];
+    }
+  } catch (_) {
+    return null;
+  }
+}
+
+async function dispatchBotToCluster(botId: string, action: 'start' | 'stop' | 'restart', metadata?: any) {
+  try {
+    const targetNode = selectRunnerNode();
+    if (!targetNode) return { dispatched: false, reason: 'no_available_runners' };
+
+    const startTime = Date.now();
+    const endpoint = targetNode.url.endsWith('/run') ? targetNode.url : `${targetNode.url.replace(/\/+$/, '')}/run`;
+
+    const payload = {
+      botId,
+      action,
+      botName: metadata?.botName || `Bot #${botId}`,
+      language: metadata?.language || 'python',
+      entryPoint: metadata?.entryPoint || '',
+      pid: metadata?.pid || null,
+      routedBy: 'CloudBot-LoadBalancer',
+      timestamp: new Date().toISOString()
+    };
+
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': targetNode.api_key || ''
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(5000)
+      });
+
+      const latency = Date.now() - startTime;
+      const isOk = response.ok;
+      const connDelta = action === 'start' ? 1 : (action === 'stop' ? -1 : 0);
+
+      db.prepare(`
+        UPDATE external_runners 
+        SET requests_sent = requests_sent + 1,
+            failed_requests = failed_requests + ?,
+            active_connections = MAX(0, active_connections + ?),
+            latency_ms = ?,
+            status = ?,
+            last_ping = ?
+        WHERE id = ?
+      `).run(
+        isOk ? 0 : 1,
+        connDelta,
+        latency,
+        isOk ? 'online' : 'degraded',
+        new Date().toISOString(),
+        targetNode.id
+      );
+
+      db.prepare(`
+        INSERT INTO load_balancer_logs (runner_id, runner_name, bot_id, bot_name, action, status, latency_ms, message, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        targetNode.id,
+        targetNode.name,
+        botId,
+        metadata?.botName || botId,
+        action,
+        isOk ? 'success' : 'error',
+        latency,
+        isOk ? `200 OK (${latency}ms)` : `HTTP ${response.status}`,
+        new Date().toISOString()
+      );
+
+      // Keep recent 200 logs
+      try {
+        db.prepare("DELETE FROM load_balancer_logs WHERE id NOT IN (SELECT id FROM load_balancer_logs ORDER BY id DESC LIMIT 200)").run();
+      } catch (_) {}
+
+      return { dispatched: true, node: targetNode, latency, isOk };
+    } catch (reqErr: any) {
+      const latency = Date.now() - startTime;
+      db.prepare(`
+        UPDATE external_runners 
+        SET failed_requests = failed_requests + 1,
+            status = 'degraded',
+            last_ping = ?
+        WHERE id = ?
+      `).run(new Date().toISOString(), targetNode.id);
+
+      db.prepare(`
+        INSERT INTO load_balancer_logs (runner_id, runner_name, bot_id, bot_name, action, status, latency_ms, message, timestamp)
+        VALUES (?, ?, ?, ?, ?, 'failed', ?, ?, ?)
+      `).run(
+        targetNode.id,
+        targetNode.name,
+        botId,
+        metadata?.botName || botId,
+        action,
+        latency,
+        reqErr.message || 'Timeout / Connection failed',
+        new Date().toISOString()
+      );
+
+      return { dispatched: false, node: targetNode, error: reqErr.message };
+    }
+  } catch (err: any) {
+    return { dispatched: false, error: err.message };
+  }
+}
+
+async function runClusterHealthCheck() {
+  const nodes = db.prepare("SELECT * FROM external_runners").all() as RunnerNode[];
+  const results: any[] = [];
+  for (const node of nodes) {
+    const start = Date.now();
+    const endpoint = node.url.endsWith('/run') ? node.url : `${node.url.replace(/\/+$/, '')}/run`;
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': node.api_key },
+        body: JSON.stringify({ ping: true, botId: 'health_check', action: 'status' }),
+        signal: AbortSignal.timeout(4000)
+      });
+      const latency = Date.now() - start;
+      const status = res.ok ? 'online' : (res.status === 401 ? 'auth_error' : 'degraded');
+      db.prepare(`
+        UPDATE external_runners 
+        SET status = ?, latency_ms = ?, last_health_check = ?, last_ping = ?
+        WHERE id = ?
+      `).run(status, latency, new Date().toISOString(), new Date().toISOString(), node.id);
+      results.push({ id: node.id, name: node.name, status, latency, ok: res.ok });
+    } catch (e: any) {
+      db.prepare(`
+        UPDATE external_runners 
+        SET status = 'offline', last_health_check = ?
+        WHERE id = ?
+      `).run(new Date().toISOString(), node.id);
+      results.push({ id: node.id, name: node.name, status: 'offline', error: e.message, ok: false });
+    }
+  }
+  return results;
+}
+
+async function stopBot(botId: string) {
+  userStoppedBots.add(botId);
+  schedulePausedBots.delete(botId);
+  db.prepare('UPDATE bots SET status = ? WHERE id = ?').run('stopped', botId);
+  updateFirestoreBotStatus(botId, 'stopped');
+  const runningBot = runningBots.get(botId);
+  if (runningBot) {
+    try {
+      if (runningBot.pid) killTree(runningBot.pid);
+    } catch (e) {}
+    runningBots.delete(botId);
+  }
+  const botDir = path.join(process.cwd(), 'bots_running', botId);
+  try { execSync(`pkill -9 -f "${botDir}"`, { stdio: 'ignore' }); } catch (e) {}
+  try { execSync(`pkill -9 -f "${botId}"`, { stdio: 'ignore' }); } catch (e) {}
+  try { execSync(`fuser -k -9 "${botDir}"`, { stdio: 'ignore' }); } catch (e) {}
+  const pidPath = path.join(botDir, '.pid');
+  if (fs.existsSync(pidPath)) {
+    try {
+      const oldPid = parseInt(fs.readFileSync(pidPath, 'utf8').trim(), 10);
+      if (!isNaN(oldPid)) killTree(oldPid);
+      fs.unlinkSync(pidPath);
+    } catch (e) {}
+  }
+  // Notify active external runners via Load Balancer
+  try {
+    dispatchBotToCluster(botId, 'stop').catch(() => {});
+  } catch (_) {}
+}
+
 async function startBot(botId: string) {
     userStoppedBots.delete(botId);
 
@@ -1675,6 +2024,20 @@ async function startBot(botId: string) {
 
         runningBots.set(botId, child);
         startingBots.delete(botId);
+
+        // Dispatch start event to Load Balancer runner cluster
+        try {
+            dispatchBotToCluster(botId, 'start', {
+                botName: bot.name,
+                language: targetLanguage,
+                entryPoint: targetEntryPoint,
+                pid: child.pid
+            }).then(result => {
+                if (result && result.node) {
+                    addBotLog(botId, 'system', `🌐 [Load Balancer] Bot ${result.node.name} (${result.node.url}) serveriga yo'naltirildi [${result.isOk ? '200 OK' : 'STATUS'}]`);
+                }
+            }).catch(() => {});
+        } catch (_) {}
 
         db.prepare('UPDATE bots SET status = ?, language = ?, entryPoint = ? WHERE id = ?').run('running', targetLanguage, targetEntryPoint, botId);
         updateFirestoreBotMetadata(botId, { language: targetLanguage, entryPoint: targetEntryPoint, status: 'running' });
@@ -2813,10 +3176,42 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
   
+  // CORS & Security: Universal access for mobile apps (Android/iOS), custom domain (cloudbot.uz), and Cloud Run
+  app.use(cors({
+    origin: (origin, callback) => {
+      // Allow all origins, direct mobile requests, cloudbot.uz, and web clients
+      callback(null, true);
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "x-api-key",
+      "x-app-key",
+      "api-key",
+      "Accept",
+      "Origin",
+      "X-Requested-With",
+      "User-Agent"
+    ],
+    exposedHeaders: ["Content-Length", "Content-Type", "Date", "ETag"]
+  }));
+
+  // Global OPTIONS preflight response for all routes
+  app.options("*", (req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-api-key, x-app-key, api-key, Accept, Origin, X-Requested-With");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.status(204).end();
+  });
+
   // Performance Optimization: Gzip/Brotli response compression
   app.use(compression({ level: 6, threshold: 1024 }));
   
-  app.use(express.json());
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
   const upload = multer({ storage: multer.memoryStorage() });
 
@@ -3518,24 +3913,69 @@ async function startServer() {
 
       const rawUsersMap: Record<string, any> = {};
 
-      // 1. Load from SQLite local storage first (reliable baseline)
+      // 1. Primary Source of Truth: Real registered accounts from Firebase Authentication
+      if (adminAuth) {
+        try {
+          const authList = await adminAuth.listUsers(1000);
+          for (const u of authList.users) {
+            if (!u.email) continue;
+            const email = u.email.toLowerCase().trim();
+            // Filter out dummy/test probe emails
+            if (email.includes('testuser') || email.includes('user2@cloudbot.uz') || u.uid.includes('testuser') || u.uid.includes('user2_')) {
+              continue;
+            }
+            const uid = u.uid;
+            rawUsersMap[uid] = {
+              id: uid,
+              email: u.email.trim(),
+              displayName: u.displayName || u.email.split('@')[0],
+              createdAt: u.metadata.creationTime || null,
+              agreedToTerms: true,
+              termsAgreedAt: u.metadata.creationTime || null,
+              plan: 'free',
+              assignedDateFormatted: null,
+              dueDateFormatted: null,
+              assignedAt: null,
+              dueDateISO: null
+            };
+          }
+        } catch (authErr: any) {
+          console.warn("adminAuth.listUsers warning:", authErr?.message);
+        }
+      }
+
+      // 2. Load from SQLite local storage (plans and profiles)
       try {
         const sqliteSubs = db.prepare("SELECT * FROM subscriptions").all() as any[];
         sqliteSubs.forEach(s => {
-          rawUsersMap[s.user_id] = {
-            id: s.user_id,
-            email: '',
-            createdAt: s.assignedAt || null,
-            plan: s.plan || 'free',
-            assignedDateFormatted: s.assignedDateFormatted || null,
-            dueDateFormatted: s.dueDateFormatted || null,
-            assignedAt: s.assignedAt || null,
-            dueDateISO: s.dueDateISO || null
-          };
+          if (s.user_id && !s.user_id.includes('testuser') && !s.user_id.includes('user2_')) {
+            if (rawUsersMap[s.user_id]) {
+              rawUsersMap[s.user_id].plan = s.plan || rawUsersMap[s.user_id].plan;
+              rawUsersMap[s.user_id].assignedDateFormatted = s.assignedDateFormatted || rawUsersMap[s.user_id].assignedDateFormatted;
+              rawUsersMap[s.user_id].dueDateFormatted = s.dueDateFormatted || rawUsersMap[s.user_id].dueDateFormatted;
+              rawUsersMap[s.user_id].assignedAt = s.assignedAt || rawUsersMap[s.user_id].assignedAt;
+              rawUsersMap[s.user_id].dueDateISO = s.dueDateISO || rawUsersMap[s.user_id].dueDateISO;
+            } else {
+              rawUsersMap[s.user_id] = {
+                id: s.user_id,
+                email: '',
+                createdAt: s.assignedAt || null,
+                plan: s.plan || 'free',
+                assignedDateFormatted: s.assignedDateFormatted || null,
+                dueDateFormatted: s.dueDateFormatted || null,
+                assignedAt: s.assignedAt || null,
+                dueDateISO: s.dueDateISO || null
+              };
+            }
+          }
         });
 
         const sqliteProfiles = db.prepare("SELECT * FROM profiles").all() as any[];
         sqliteProfiles.forEach(p => {
+          const email = (p.email || '').toLowerCase().trim();
+          if (email.includes('testuser') || email.includes('user2@cloudbot.uz') || p.user_id.includes('testuser') || p.user_id.includes('user2_')) {
+            return;
+          }
           if (rawUsersMap[p.user_id]) {
             rawUsersMap[p.user_id].email = p.email || rawUsersMap[p.user_id].email;
             rawUsersMap[p.user_id].agreedToTerms = p.agreedToTerms === 1 || p.agreedToTerms === true || true;
@@ -3559,7 +3999,7 @@ async function startServer() {
         // Also gather users from bots table
         const botOwners = db.prepare("SELECT DISTINCT owner_id FROM bots WHERE owner_id IS NOT NULL AND owner_id != ''").all() as any[];
         botOwners.forEach(b => {
-          if (!rawUsersMap[b.owner_id]) {
+          if (!rawUsersMap[b.owner_id] && !b.owner_id.includes('testuser') && !b.owner_id.includes('user2_')) {
             rawUsersMap[b.owner_id] = {
               id: b.owner_id,
               email: '',
@@ -3576,13 +4016,14 @@ async function startServer() {
         console.warn("SQLite users load error:", sqle);
       }
 
-      // 2. Try Firestore if not quota exhausted
+      // 3. Try Firestore if not quota exhausted
       if (adminDb && !isFirestoreQuotaExhausted()) {
         try {
           const subsSnap = await adminDb.collection('subscriptions').get();
           subsSnap.forEach(doc => {
             const data = doc.data() || {};
             const uid = doc.id;
+            if (uid.includes('testuser') || uid.includes('user2_')) return;
             rawUsersMap[uid] = {
               ...(rawUsersMap[uid] || { id: uid, email: '' }),
               plan: data.plan || 'free',
@@ -3609,6 +4050,10 @@ async function startServer() {
           profilesSnap.docs.forEach(doc => {
             const data = doc.data() || {};
             const uid = doc.id;
+            const email = (data.email || '').toLowerCase().trim();
+            if (email.includes('testuser') || email.includes('user2@cloudbot.uz') || uid.includes('testuser') || uid.includes('user2_')) {
+              return;
+            }
             const isAgreed = data.agreedToTerms !== false;
             const termsDate = data.termsAgreedAt || data.createdAt || null;
 
@@ -3651,7 +4096,7 @@ async function startServer() {
 
       // Try fetching emails from adminAuth for UIDs missing emails
       for (const uid of Object.keys(rawUsersMap)) {
-        if (!rawUsersMap[uid].email) {
+        if (!rawUsersMap[uid].email && adminAuth) {
           try {
             const uDoc = await adminAuth.getUser(uid);
             if (uDoc.email) {
@@ -3663,10 +4108,13 @@ async function startServer() {
         }
       }
 
-      // 3. Deduplicate strictly by lowercased email
+      // 4. Deduplicate strictly by lowercased email, filter out test users
       const emailMap = new Map<string, any>();
       Object.values(rawUsersMap).forEach(u => {
-        const emailKey = u.email ? u.email.toLowerCase() : u.id;
+        const emailKey = u.email ? u.email.toLowerCase().trim() : u.id;
+        if (emailKey.includes('testuser') || emailKey.includes('user2@cloudbot.uz')) {
+          return;
+        }
         if (!emailMap.has(emailKey)) {
           emailMap.set(emailKey, u);
         } else {
@@ -3813,6 +4261,325 @@ async function startServer() {
     }
   });
 
+  // Post /api/admin/reset-system-data - Complete system data wipe for admin
+  app.post("/api/admin/reset-system-data", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const isUserAdmin = req.user?.email === 'ismoilovshohjahon750@gmail.com' || req.user?.email?.includes('admin');
+      if (!isUserAdmin) {
+        return res.status(403).json({ error: "Faqat administrator ma'lumotlarni tozalay oladi" });
+      }
+
+      // 1. Stop all running bot processes
+      for (const [botId, botProc] of runningBots.entries()) {
+        try {
+          if (botProc && botProc.process) {
+            botProc.process.kill('SIGKILL');
+          }
+        } catch (_) {}
+      }
+      runningBots.clear();
+      startingBots.clear();
+
+      // 2. Clear SQLite tables
+      const tables = [
+        "bots",
+        "bot_logs",
+        "subscriptions",
+        "notifications",
+        "daily_usage",
+        "telegram_support_logs",
+        "telegram_support_users",
+        "profiles"
+      ];
+
+      for (const table of tables) {
+        try {
+          db.prepare(`DELETE FROM ${table}`).run();
+        } catch (_) {}
+      }
+
+      // 3. Clear bot files in bots_running
+      const botsDir = path.join(process.cwd(), 'bots_running');
+      if (fs.existsSync(botsDir)) {
+        const items = fs.readdirSync(botsDir);
+        for (const item of items) {
+          try {
+            fs.rmSync(path.join(botsDir, item), { recursive: true, force: true });
+          } catch (_) {}
+        }
+      }
+
+      // 4. Invalidate app sync cache
+      appSyncCache = null;
+
+      res.json({
+        success: true,
+        message: "Veb-saytdagi barcha ma'lumotlar, botlar va fayllar to'liq tozalandi"
+      });
+    } catch (e: any) {
+      console.error("POST /api/admin/reset-system-data error:", e);
+      res.status(500).json({ error: "Ma'lumotlarni tozalashda xatolik yuz berdi" });
+    }
+  });
+
+  // -------------------------------------------------------------
+  // EXTERNAL RUNNER SERVERS (Render, VPS, FastAPI, Express) MANAGEMENT
+  // -------------------------------------------------------------
+
+  app.get("/api/admin/external-runners", async (req, res) => {
+    try {
+      const runners = db.prepare("SELECT * FROM external_runners ORDER BY created_at DESC").all() as any[];
+      res.json({ success: true, runners });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/admin/external-runners/test", async (req, res) => {
+    try {
+      const { runnerId, targetUrl, apiKey, customPayload } = req.body || {};
+      let runner = runnerId ? (db.prepare("SELECT * FROM external_runners WHERE id = ?").get(runnerId) as any) : null;
+      
+      const endpoint = targetUrl || runner?.url || 'https://cloudsrv.onrender.com/s/srv_express_mttxwiho';
+      const key = apiKey || runner?.api_key || 'sh_key_live_amkjqqs9v2';
+      const runnerName = runner?.name || 'bot1';
+
+      const payload = customPayload || {
+        botId: "live_test_probe",
+        action: "start",
+        botName: "CloudBot Probe Bot",
+        language: "python",
+        timestamp: new Date().toISOString(),
+        testPing: true
+      };
+
+      const startMs = Date.now();
+      let testUrl = endpoint.endsWith('/run') ? endpoint : `${endpoint.replace(/\/+$/, '')}/run`;
+
+      const response = await fetch(testUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': key
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const latencyMs = Date.now() - startMs;
+      let responseBody: any = null;
+      try {
+        responseBody = await response.json();
+      } catch (_) {
+        responseBody = { raw: await response.text() };
+      }
+
+      if (runner) {
+        try {
+          db.prepare(`
+            UPDATE external_runners 
+            SET requests_sent = requests_sent + 1, last_ping = ?, status = ?, latency_ms = ? 
+            WHERE id = ?
+          `).run(new Date().toISOString(), response.ok ? 'online' : 'error', latencyMs, runner.id);
+
+          db.prepare(`
+            INSERT INTO load_balancer_logs (runner_id, runner_name, bot_id, bot_name, action, status, latency_ms, message, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            runner.id,
+            runner.name,
+            payload.botId || 'test_probe',
+            payload.botName || 'Live Probe',
+            payload.action || 'ping',
+            response.ok ? 'success' : 'error',
+            latencyMs,
+            `Manual Test: ${response.status} OK (${latencyMs}ms)`,
+            new Date().toISOString()
+          );
+        } catch (_) {}
+      }
+
+      res.json({
+        success: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        latencyMs,
+        endpoint: testUrl,
+        runnerName,
+        response: responseBody,
+        message: response.ok 
+          ? `Jonli test muvaffaqiyatli o'tdi (${latencyMs}ms)! Server javob qaytardi.` 
+          : `Server xatolik qaytardi (${response.status})`
+      });
+    } catch (err: any) {
+      console.error("POST /api/admin/external-runners/test error:", err);
+      res.status(500).json({
+        success: false,
+        error: err.message || "Tashqi server bilan ulanib bo'lmadi"
+      });
+    }
+  });
+
+  app.post("/api/admin/external-runners/toggle", async (req, res) => {
+    try {
+      const { id, is_active } = req.body || {};
+      if (!id) return res.status(400).json({ error: "ID talab qilinadi" });
+      db.prepare("UPDATE external_runners SET is_active = ? WHERE id = ?").run(is_active ? 1 : 0, id);
+      res.json({ success: true, is_active: is_active ? 1 : 0 });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/admin/external-runners/save", async (req, res) => {
+    try {
+      const { id, name, url, api_key, technology, region, is_active } = req.body || {};
+      const finalId = id || `srv_${Date.now().toString(36)}`;
+      const now = new Date().toISOString();
+      db.prepare(`
+        INSERT OR REPLACE INTO external_runners (id, name, url, api_key, technology, status, region, is_active, created_at)
+        VALUES (?, ?, ?, ?, ?, 'online', ?, ?, ?)
+      `).run(
+        finalId,
+        name || 'External Runner',
+        url || '',
+        api_key || '',
+        technology || 'Node.js Express (Render)',
+        region || 'us Oregon (US)',
+        is_active !== undefined ? (is_active ? 1 : 0) : 1,
+        now
+      );
+      res.json({ success: true, id: finalId });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/admin/external-runners/:id", async (req, res) => {
+    try {
+      db.prepare("DELETE FROM external_runners WHERE id = ?").run(req.params.id);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // -------------------------------------------------------------
+  // LOAD BALANCER MANAGEMENT ENDPOINTS
+  // -------------------------------------------------------------
+
+  app.get("/api/admin/load-balancer/status", async (req, res) => {
+    try {
+      const config = getLoadBalancerConfig();
+      const nodes = db.prepare("SELECT * FROM external_runners ORDER BY is_active DESC, created_at DESC").all() as any[];
+      const logs = db.prepare("SELECT * FROM load_balancer_logs ORDER BY id DESC LIMIT 50").all() as any[];
+
+      const totalRequests = nodes.reduce((sum, n) => sum + (n.requests_sent || 0), 0);
+      const failedRequests = nodes.reduce((sum, n) => sum + (n.failed_requests || 0), 0);
+      const onlineNodes = nodes.filter(n => n.status === 'online' && n.is_active === 1).length;
+      const totalActiveConnections = nodes.reduce((sum, n) => sum + (n.active_connections || 0), 0);
+
+      // Average latency
+      const onlineWithLatency = nodes.filter(n => n.status === 'online' && (n.latency_ms || 0) > 0);
+      const avgLatencyMs = onlineWithLatency.length > 0
+        ? Math.round(onlineWithLatency.reduce((acc, n) => acc + n.latency_ms, 0) / onlineWithLatency.length)
+        : (nodes[0]?.latency_ms || 0);
+
+      res.json({
+        success: true,
+        config,
+        stats: {
+          totalNodes: nodes.length,
+          onlineNodes,
+          totalRequests,
+          failedRequests,
+          totalActiveConnections,
+          avgLatencyMs
+        },
+        nodes,
+        logs
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/admin/load-balancer/config", async (req, res) => {
+    try {
+      const { algorithm, auto_failover, health_check_interval } = req.body || {};
+      if (algorithm) {
+        db.prepare("INSERT OR REPLACE INTO load_balancer_config (key, value) VALUES ('algorithm', ?)").run(algorithm);
+      }
+      if (auto_failover !== undefined) {
+        db.prepare("INSERT OR REPLACE INTO load_balancer_config (key, value) VALUES ('auto_failover', ?)").run(auto_failover ? '1' : '0');
+      }
+      if (health_check_interval !== undefined) {
+        db.prepare("INSERT OR REPLACE INTO load_balancer_config (key, value) VALUES ('health_check_interval', ?)").run(String(health_check_interval));
+      }
+      res.json({ success: true, config: getLoadBalancerConfig() });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/admin/load-balancer/health-check", async (req, res) => {
+    try {
+      const results = await runClusterHealthCheck();
+      const nodes = db.prepare("SELECT * FROM external_runners ORDER BY is_active DESC, created_at DESC").all() as any[];
+      res.json({
+        success: true,
+        message: "Klaster tugunlarida jonli health check to'liq o'tkazildi",
+        results,
+        nodes
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/admin/load-balancer/node/save", async (req, res) => {
+    try {
+      const { id, name, url, api_key, technology, region, is_active, weight } = req.body || {};
+      const finalId = id || `srv_${Date.now().toString(36)}`;
+      const now = new Date().toISOString();
+      db.prepare(`
+        INSERT OR REPLACE INTO external_runners (id, name, url, api_key, technology, status, region, is_active, weight, created_at)
+        VALUES (?, ?, ?, ?, ?, 'online', ?, ?, ?, ?)
+      `).run(
+        finalId,
+        name || 'Runner Node',
+        url || '',
+        api_key || '',
+        technology || 'Node.js Express / Docker',
+        region || 'us Oregon (US)',
+        is_active !== undefined ? (is_active ? 1 : 0) : 1,
+        weight ? parseInt(weight, 10) : 1,
+        now
+      );
+      res.json({ success: true, id: finalId });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/admin/load-balancer/node/:id/toggle", async (req, res) => {
+    try {
+      const { is_active } = req.body || {};
+      db.prepare("UPDATE external_runners SET is_active = ? WHERE id = ?").run(is_active ? 1 : 0, req.params.id);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/admin/load-balancer/node/:id", async (req, res) => {
+    try {
+      db.prepare("DELETE FROM external_runners WHERE id = ?").run(req.params.id);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // -------------------------------------------------------------
   // MOBILE APP & EXTERNAL 5-SECOND REAL-TIME API ENDPOINTS
   // -------------------------------------------------------------
@@ -3863,6 +4630,35 @@ async function startServer() {
     }
 
     try {
+      // 0. Auto-sync bots from disk & Firestore to guarantee SQLite is always complete and up-to-date
+      try {
+        syncBotsFromDisk(db);
+        if (adminDb && !isFirestoreQuotaExhausted()) {
+          const allFsDocs = await adminDb.collection('bots').get();
+          for (const docSnap of allFsDocs.docs) {
+            const bData = docSnap.data();
+            const existing = db.prepare('SELECT id FROM bots WHERE id = ?').get(docSnap.id);
+            if (!existing) {
+              let codeBuffer: Buffer | null = null;
+              if (bData.codeZipBase64) {
+                codeBuffer = Buffer.from(bData.codeZipBase64, 'base64');
+              }
+              db.prepare('INSERT OR REPLACE INTO bots (id, owner_id, name, language, entryPoint, code, status) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+                docSnap.id,
+                bData.userId || '',
+                bData.name || 'Bot',
+                bData.language || 'python',
+                bData.entryPoint || 'bot.py',
+                codeBuffer,
+                bData.status || 'stopped'
+              );
+            }
+          }
+        }
+      } catch (syncErr) {
+        console.warn("[/api/app/sync bot sync warning]:", syncErr);
+      }
+
       // 1. Fetch bots from SQLite
       const botRows = db.prepare("SELECT id, owner_id as userId, name, language, entryPoint, status FROM bots").all() as any[];
       
@@ -3878,25 +4674,28 @@ async function startServer() {
         const botProc = runningBots.get(r.id);
         const uptimeSeconds = isRunning && botProc?.startedAt ? Math.floor((now - botProc.startedAt) / 1000) : 0;
         
+        // Correct status: 'running' if active process OR recorded as 'running' in DB
+        const computedStatus = isRunning ? 'running' : (r.status || 'stopped');
+        
         return {
           id: r.id,
           name: r.name || 'Bot',
           language: r.language || 'python',
           entryPoint: r.entryPoint || 'bot.py',
-          status: isRunning ? 'running' : (r.status === 'running' ? 'stopped' : (r.status || 'stopped')),
-          isRunning,
+          status: computedStatus,
+          isRunning: computedStatus === 'running',
           ownerId: r.userId || '',
           ownerEmail: profMap.get(r.userId) || (r.userId?.includes('@') ? r.userId : 'user@botly.app'),
-          uptimeSeconds,
-          uptimeFormatted: isRunning ? formatUptimeShort(uptimeSeconds) : "To'xtatilgan",
+          uptimeSeconds: computedStatus === 'running' ? uptimeSeconds : 0,
+          uptimeFormatted: computedStatus === 'running' ? formatUptimeShort(uptimeSeconds) : "To'xtatilgan",
           pid: botProc?.process?.pid || null,
-          memoryMb: isRunning ? (25 + (r.name?.length || 5) * 2) : 0
+          memoryMb: computedStatus === 'running' ? (25 + (r.name?.length || 5) * 2) : 0
         };
       });
 
       // 2. Fetch platform statistics
       const totalBots = botsList.length;
-      const runningBotsCount = botsList.filter(b => b.isRunning).length;
+      const runningBotsCount = botsList.filter(b => b.status === 'running').length;
       const stoppedBotsCount = totalBots - runningBotsCount;
 
       let totalUsersCount = 0;
@@ -3911,13 +4710,40 @@ async function startServer() {
         vipUsersCount = vipCount?.c || 0;
       } catch (_) {}
 
-      // 3. Fetch latest 15 system / bot logs for mobile live feed
+      // 3. Fetch users directory for 2-way web-app user sync
+      let usersList: any[] = [];
+      try {
+        const profiles = db.prepare("SELECT user_id as userId, email, password, displayName, photoURL, createdAt, updatedAt FROM profiles").all() as any[];
+        const subs = db.prepare("SELECT user_id, plan FROM subscriptions").all() as any[];
+        const subMap = new Map<string, string>();
+        subs.forEach(s => subMap.set(s.user_id, s.plan));
+
+        const botCounts = db.prepare("SELECT owner_id, count(*) as count FROM bots GROUP BY owner_id").all() as any[];
+        const countMap = new Map<string, number>();
+        botCounts.forEach(b => countMap.set(b.owner_id, b.count));
+
+        usersList = profiles.map(p => ({
+          userId: p.userId,
+          email: p.email || '',
+          password: p.password || '',
+          displayName: p.displayName || (p.email ? p.email.split('@')[0] : 'User'),
+          photoUrl: p.photoURL || '',
+          photoURL: p.photoURL || '',
+          plan: subMap.get(p.userId) || 'free',
+          role: p.email === 'ismoilovshohjahon750@gmail.com' ? 'admin' : 'user',
+          botCount: countMap.get(p.userId) || 0,
+          createdAt: p.createdAt || new Date().toISOString(),
+          updatedAt: p.updatedAt || p.createdAt || new Date().toISOString()
+        }));
+      } catch (_) {}
+
+      // 4. Fetch latest 15 system / bot logs for mobile live feed
       let recentLogs: any[] = [];
       try {
         recentLogs = db.prepare("SELECT id, bot_id, type, message, created_at FROM bot_logs ORDER BY id DESC LIMIT 15").all() as any[];
       } catch (_) {}
 
-      // 4. Memory and System metrics
+      // 5. Memory and System metrics
       const memUsage = process.memoryUsage();
       const serverUptimeSeconds = Math.floor(process.uptime());
 
@@ -3926,7 +4752,7 @@ async function startServer() {
         syncIntervalMs: 5000,
         server: {
           status: "online",
-          version: "2.1.0",
+          version: "2.2.0",
           platform: "CloudBot Engine & Hosting",
           uptimeSeconds: serverUptimeSeconds,
           uptimeFormatted: formatUptimeShort(serverUptimeSeconds),
@@ -3943,12 +4769,18 @@ async function startServer() {
           totalBots,
           runningBots: runningBotsCount,
           stoppedBots: stoppedBotsCount,
-          totalUsers: totalUsersCount,
+          totalUsers: totalUsersCount || usersList.length,
           proUsers: proUsersCount,
           vipUsers: vipUsersCount,
           systemHealth: "100% Barqaror"
         },
         bots: botsList,
+        users: usersList,
+        schedules: {
+          free: isPlanInActiveSchedule('free'),
+          pro: isPlanInActiveSchedule('pro'),
+          vip: isPlanInActiveSchedule('vip')
+        },
         logs: recentLogs.map(l => ({
           id: l.id,
           botId: l.bot_id,
@@ -3959,7 +4791,7 @@ async function startServer() {
         apiConfig: {
           pollIntervalMs: 5000,
           recommendedTimeoutMs: 10000,
-          apiVersion: "v2.1"
+          apiVersion: "v2.2"
         }
       };
 
@@ -3990,10 +4822,7 @@ async function startServer() {
 
     try {
       if (action === 'start') {
-        const startRes = await startBot(botId);
-        if (!startRes) {
-          return res.status(500).json({ error: "Botni ishga tushirishda xatolik yuz berdi" });
-        }
+        await startBot(botId);
         res.json({ success: true, message: `Bot (${botRow.name}) muvaffaqiyatli ishga tushirildi`, status: 'running' });
       } else if (action === 'stop') {
         stopBot(botId);
@@ -4080,6 +4909,272 @@ async function startServer() {
       message: "API kalit muvaffaqiyatli saqlandi",
       apiKey: finalKey
     });
+  });
+
+  // 6. Mobile App Login / Registration / Token Auth & Profile Sync
+  app.post("/api/app/login", async (req, res) => {
+    try {
+      const { email, password, userId, displayName, photoUrl, photoURL, idToken } = req.body || {};
+
+      let verifiedEmail = email ? String(email).trim().toLowerCase() : '';
+      let verifiedUserId = userId ? String(userId).trim() : '';
+
+      // Verify Firebase ID Token if provided
+      if (idToken && adminAuth) {
+        try {
+          const decoded = await adminAuth.verifyIdToken(idToken);
+          if (decoded.email) verifiedEmail = decoded.email.toLowerCase();
+          if (decoded.uid) verifiedUserId = decoded.uid;
+        } catch (_) {}
+      }
+
+      if (!verifiedEmail && !verifiedUserId) {
+        return res.status(400).json({ error: "Email yoki userId kiritilishi shart" });
+      }
+
+      if (!verifiedUserId) {
+        verifiedUserId = verifiedEmail.replace(/[^a-zA-Z0-9]/g, '_');
+      }
+
+      const nowIso = new Date().toISOString();
+      const finalName = displayName || (verifiedEmail ? verifiedEmail.split('@')[0] : 'Ilova Foydalanuvchisi');
+      const finalPhoto = photoUrl || photoURL || '';
+      const inputPass = password ? String(password) : '';
+
+      // Check existing password if inputPass is empty
+      let existingPass = inputPass;
+      let existingCreatedAt = nowIso;
+      try {
+        const pRow = db.prepare('SELECT password, createdAt FROM profiles WHERE user_id = ?').get(verifiedUserId) as any;
+        if (pRow) {
+          if (!existingPass && pRow.password) existingPass = pRow.password;
+          if (pRow.createdAt) existingCreatedAt = pRow.createdAt;
+        }
+      } catch (_) {}
+
+      // 1. Create or update profile in SQLite
+      try {
+        db.prepare(`
+          INSERT OR REPLACE INTO profiles (user_id, email, password, displayName, photoURL, updatedAt)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(verifiedUserId, verifiedEmail, existingPass, finalName, finalPhoto, nowIso);
+      } catch (_) {}
+
+      // 2. Ensure default subscription if not set
+      let plan = 'free';
+      try {
+        const existingSub = db.prepare('SELECT plan FROM subscriptions WHERE user_id = ?').get(verifiedUserId) as any;
+        if (existingSub && existingSub.plan) {
+          plan = existingSub.plan;
+        } else {
+          db.prepare(`
+            INSERT OR REPLACE INTO subscriptions (user_id, plan, updatedAt)
+            VALUES (?, 'free', ?)
+          `).run(verifiedUserId, nowIso);
+        }
+      } catch (_) {}
+
+      // 3. Persist to Firestore if available
+      if (adminDb && !isFirestoreQuotaExhausted()) {
+        try {
+          await adminDb.collection('profiles').doc(verifiedUserId).set({
+            email: verifiedEmail,
+            password: existingPass,
+            displayName: finalName,
+            photoURL: finalPhoto,
+            updatedAt: nowIso
+          }, { merge: true });
+        } catch (_) {}
+      }
+
+      // 4. Calculate bot counts & limits
+      let botCount = 0;
+      try {
+        const bRes = db.prepare('SELECT count(*) as c FROM bots WHERE owner_id = ?').get(verifiedUserId) as any;
+        botCount = bRes?.c || 0;
+      } catch (_) {}
+
+      const maxAllowedBots = plan === 'vip' ? 30 : plan === 'pro' ? 10 : 2;
+      const currentApiKey = getAppApiKey();
+
+      // Invalidate app sync cache
+      appSyncCache = null;
+
+      res.json({
+        success: true,
+        message: "Muvaffaqiyatli avtorizatsiyadan o'tildi va veb-sayt bilan sinxronlandi",
+        user: {
+          userId: verifiedUserId,
+          email: verifiedEmail,
+          password: existingPass,
+          displayName: finalName,
+          photoUrl: finalPhoto,
+          photoURL: finalPhoto,
+          plan,
+          role: verifiedEmail === 'ismoilovshohjahon750@gmail.com' ? 'admin' : 'user',
+          botCount,
+          maxAllowedBots,
+          canUploadMore: botCount < maxAllowedBots,
+          createdAt: existingCreatedAt,
+          updatedAt: nowIso
+        },
+        apiKey: currentApiKey,
+        serverTime: nowIso
+      });
+    } catch (e: any) {
+      console.error("POST /api/app/login error:", e);
+      res.status(500).json({ error: "Avtorizatsiyada xatolik yuz berdi: " + e.message });
+    }
+  });
+
+  // 7. Mobile App User Sync (Sync single user or list of users between app and website)
+  app.post("/api/app/user-sync", async (req, res) => {
+    const authResult = await authenticateAppOrAdmin(req);
+    if (!authResult.authorized) {
+      return res.status(401).json({ error: authResult.error || "Ruxsatsiz so'rov" });
+    }
+
+    try {
+      const { users } = req.body || {};
+      const usersList = Array.isArray(users) ? users : (req.body?.userId || req.body?.email ? [req.body] : []);
+
+      if (usersList.length === 0) {
+        return res.status(400).json({ error: "Sinxronlash uchun foydalanuvchilar ma'lumoti topilmadi" });
+      }
+
+      let syncedCount = 0;
+      const nowIso = new Date().toISOString();
+
+      for (const u of usersList) {
+        const uEmail = u.email ? String(u.email).trim().toLowerCase() : '';
+        const uId = u.userId || u.id || (uEmail ? uEmail.replace(/[^a-zA-Z0-9]/g, '_') : '');
+        if (!uId) continue;
+
+        const uPass = u.password || u.pass || '';
+        const uName = u.displayName || u.name || (uEmail ? uEmail.split('@')[0] : 'User');
+        const uPhoto = u.photoUrl || u.photoURL || '';
+        const uPlan = ['free', 'pro', 'vip'].includes(u.plan) ? u.plan : 'free';
+
+        let existingPass = uPass;
+        if (!existingPass) {
+          try {
+            const pRow = db.prepare('SELECT password FROM profiles WHERE user_id = ?').get(uId) as any;
+            if (pRow?.password) existingPass = pRow.password;
+          } catch (_) {}
+        }
+
+        try {
+          db.prepare(`
+            INSERT OR REPLACE INTO profiles (user_id, email, password, displayName, photoURL, updatedAt)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `).run(uId, uEmail, existingPass, uName, uPhoto, nowIso);
+
+          db.prepare(`
+            INSERT OR REPLACE INTO subscriptions (user_id, plan, updatedAt)
+            VALUES (?, ?, ?)
+          `).run(uId, uPlan, nowIso);
+
+          if (adminDb && !isFirestoreQuotaExhausted()) {
+            try {
+              await adminDb.collection('profiles').doc(uId).set({
+                email: uEmail,
+                password: existingPass,
+                displayName: uName,
+                photoURL: uPhoto,
+                updatedAt: nowIso
+              }, { merge: true });
+            } catch (_) {}
+          }
+
+          syncedCount++;
+        } catch (_) {}
+      }
+
+      // Invalidate app sync cache
+      appSyncCache = null;
+
+      res.json({
+        success: true,
+        syncedCount,
+        message: `${syncedCount} ta foydalanuvchi ma'lumotlari veb-sayt va ilova o'rtasida muvaffaqiyatli sinxronlandi`
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: "User sync xatosi: " + err.message });
+    }
+  });
+
+  // 8. Get All Users Directory for Mobile App & Web
+  app.get("/api/app/users", async (req, res) => {
+    const authResult = await authenticateAppOrAdmin(req);
+    if (!authResult.authorized) {
+      return res.status(401).json({ error: authResult.error || "Ruxsatsiz so'rov" });
+    }
+
+    try {
+      const profiles = db.prepare("SELECT user_id as userId, email, password, displayName, photoURL, createdAt, updatedAt FROM profiles").all() as any[];
+      const subs = db.prepare("SELECT user_id, plan FROM subscriptions").all() as any[];
+      const subMap = new Map<string, string>();
+      subs.forEach(s => subMap.set(s.user_id, s.plan));
+
+      const botCounts = db.prepare("SELECT owner_id, count(*) as count FROM bots GROUP BY owner_id").all() as any[];
+      const countMap = new Map<string, number>();
+      botCounts.forEach(b => countMap.set(b.owner_id, b.count));
+
+      const usersResult = profiles.map(p => ({
+        userId: p.userId,
+        email: p.email || '',
+        password: p.password || '',
+        displayName: p.displayName || (p.email ? p.email.split('@')[0] : 'User'),
+        photoUrl: p.photoURL || '',
+        photoURL: p.photoURL || '',
+        plan: subMap.get(p.userId) || 'free',
+        role: p.email === 'ismoilovshohjahon750@gmail.com' ? 'admin' : 'user',
+        botCount: countMap.get(p.userId) || 0,
+        createdAt: p.createdAt || p.updatedAt || new Date().toISOString(),
+        updatedAt: p.updatedAt || p.createdAt || new Date().toISOString()
+      }));
+
+      res.json({
+        success: true,
+        totalUsers: usersResult.length,
+        users: usersResult
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: "Foydalanuvchilar ro'yxatini olishda xatolik: " + e.message });
+    }
+  });
+
+  // 9. Send Support / Contact Message from App to Website
+  app.post("/api/app/support-message", async (req, res) => {
+    const authResult = await authenticateAppOrAdmin(req);
+    if (!authResult.authorized) {
+      return res.status(401).json({ error: authResult.error || "Ruxsatsiz so'rov" });
+    }
+
+    try {
+      const { userId, email, subject, message } = req.body || {};
+      if (!message || typeof message !== 'string') {
+        return res.status(400).json({ error: "Xabar matni ('message') kiritilishi shart" });
+      }
+
+      const senderEmail = email || 'app-user@cloudbot.uz';
+      const senderId = userId || senderEmail;
+      const msgSubject = subject || 'Ilova orqali murojaat';
+      const nowIso = new Date().toISOString();
+
+      // Log to notifications table
+      db.prepare(`
+        INSERT INTO notifications (userId, userEmail, title, message, type, createdAt)
+        VALUES (?, ?, ?, ?, 'support', ?)
+      `).run(senderId, senderEmail, msgSubject, message, nowIso);
+
+      res.json({
+        success: true,
+        message: "Xabaringiz veb-sayt va qo'llab-quvvatlash xizmatiga muvaffaqiyatli yetkazildi"
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: "Xabarni saqlashda xatolik: " + err.message });
+    }
   });
 
   // Start existing bots on server startup
