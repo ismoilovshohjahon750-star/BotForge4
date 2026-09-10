@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { Button } from './ui/button';
-import { Bot, LogOut, LayoutDashboard, ShieldCheck, Menu, X, Coins, LogIn, MessageSquare, Send, ExternalLink } from 'lucide-react';
+import { Bot, LogOut, LayoutDashboard, ShieldCheck, Menu, X, Coins, LogIn, MessageSquare, Send, ExternalLink, Globe, Check, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { toast } from 'sonner';
 import { LogoFull } from './Logo';
 import { NotificationBell } from './NotificationBell';
 import { LanguageSelector } from './LanguageSelector';
@@ -12,17 +13,40 @@ import { useTranslation } from '../context/LanguageContext';
 
 export const Navbar: React.FC = () => {
   const { user, isAdmin, logout, login } = useAuth();
-  const { t, currentLang } = useTranslation();
+  const { t, currentLang, language, setLanguage, languages } = useTranslation();
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
+  const [isLangOpen, setIsLangOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const langRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  const toggleMenu = () => setIsOpen(!isOpen);
-  const closeMenu = () => setIsOpen(false);
+  // Close language popup on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (langRef.current && !langRef.current.contains(event.target as Node)) {
+        setIsLangOpen(false);
+      }
+    };
+    if (isLangOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isLangOpen]);
+
+  const toggleMenu = () => {
+    setIsLangOpen(false);
+    setIsOpen(!isOpen);
+  };
+  const closeMenu = () => {
+    setIsOpen(false);
+    setIsLangOpen(false);
+  };
 
   const handleLogout = async () => {
     closeMenu();
@@ -45,15 +69,89 @@ export const Navbar: React.FC = () => {
 
         {/* Right side controls (Language quick switch, NotificationBell & Hamburger) */}
         <div className="flex items-center gap-2 sm:gap-3 z-50">
-          <button
-            type="button"
-            onClick={toggleMenu}
-            className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl border border-zinc-700/80 bg-zinc-900/90 hover:bg-zinc-800 text-zinc-200 text-xs font-semibold cursor-pointer transition-all shadow-sm"
-            title={t('nav_languageSettings', 'Til sozlamalari')}
-          >
-            <span className="text-base leading-none">{currentLang.flag}</span>
-            <span className="hidden xs:inline-block text-[11px] font-bold text-zinc-300 uppercase">{currentLang.badge}</span>
-          </button>
+          {/* Quick Language Dropdown */}
+          <div className="relative" ref={langRef}>
+            <button
+              type="button"
+              onClick={() => {
+                setIsLangOpen(!isLangOpen);
+                if (isOpen) setIsOpen(false);
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl border border-zinc-700/80 bg-zinc-900/90 hover:bg-zinc-800 active:bg-zinc-800 text-zinc-200 text-xs font-semibold cursor-pointer transition-all shadow-sm"
+              title={t('nav_languageSettings', 'Til sozlamalari')}
+              aria-expanded={isLangOpen}
+            >
+              <span className="text-base leading-none">{currentLang.flag}</span>
+              <span className="hidden xs:inline-block text-[11px] font-bold text-zinc-300 uppercase">{currentLang.badge}</span>
+              <ChevronDown className={`w-3 h-3 text-zinc-400 transition-transform duration-200 ${isLangOpen ? 'rotate-180 text-emerald-400' : ''}`} />
+            </button>
+
+            {/* Floating Language Dropdown Menu */}
+            <AnimatePresence>
+              {isLangOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8, scale: 0.96 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 8, scale: 0.96 }}
+                  transition={{ duration: 0.15, ease: 'easeOut' }}
+                  className="absolute right-0 mt-2 w-64 rounded-2xl border border-zinc-800 bg-zinc-900/95 backdrop-blur-xl shadow-2xl p-2 z-50"
+                >
+                  <div className="px-2.5 py-1.5 text-[11px] font-semibold text-zinc-400 flex items-center gap-1.5 border-b border-zinc-800/80 mb-1">
+                    <Globe className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>{t('nav_availableLanguages', 'Mavjud tillar:')}</span>
+                  </div>
+
+                  <div className="space-y-1">
+                    {languages.map((lang) => {
+                      const isSelected = lang.code === language;
+                      return (
+                        <button
+                          key={lang.code}
+                          type="button"
+                          onClick={() => {
+                            setLanguage(lang.code);
+                            setIsLangOpen(false);
+                            toast.success(lang.confirmText, {
+                              icon: lang.flag,
+                              duration: 2500,
+                            });
+                          }}
+                          className={`w-full flex items-center justify-between p-2 rounded-xl text-left transition-all cursor-pointer ${
+                            isSelected
+                              ? 'bg-emerald-500/15 border border-emerald-500/40 text-white shadow-sm'
+                              : 'hover:bg-zinc-800/80 text-zinc-300 hover:text-white border border-transparent'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span className="text-base shrink-0 leading-none">{lang.flag}</span>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className={`text-xs font-bold ${isSelected ? 'text-emerald-300' : 'text-zinc-200'}`}>
+                                  {lang.nativeName}
+                                </span>
+                                <span className={`text-[10px] px-1 py-0.2 rounded font-medium ${
+                                  isSelected ? 'bg-emerald-500/25 text-emerald-200' : 'bg-zinc-800 text-zinc-400'
+                                }`}>
+                                  {lang.badge}
+                                </span>
+                              </div>
+                              <div className="text-[10px] text-zinc-400 truncate">
+                                {lang.sublabel}
+                              </div>
+                            </div>
+                          </div>
+
+                          {isSelected && (
+                            <Check className="w-4 h-4 text-emerald-400 stroke-[2.5] shrink-0 ml-1" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
 
           {user && <NotificationBell />}
           <button
@@ -192,7 +290,7 @@ export const Navbar: React.FC = () => {
 
                     {/* Til Sozlamalari (O'zbekiston davlat tillari va kirill) */}
                     <div className="pt-2 mt-2 border-t border-zinc-800/80">
-                      <LanguageSelector defaultExpanded={true} />
+                      <LanguageSelector defaultExpanded={false} onSelect={closeMenu} />
                     </div>
                   </div>
                 </motion.div>

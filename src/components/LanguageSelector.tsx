@@ -21,6 +21,7 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
 
   const handleSelectLanguage = (lang: AppLanguage) => {
     setLanguage(lang.code);
+    setIsExpanded(false);
     toast.success(lang.confirmText, {
       icon: lang.flag,
       duration: 2500,

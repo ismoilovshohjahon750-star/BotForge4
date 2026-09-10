@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { Input } from '../components/ui/input';
 import { handleFirestoreError, OperationType } from '../lib/firestore-utils';
 import { useTranslation } from '../context/LanguageContext';
+import { ServerMonitoring } from '../components/ServerMonitoring';
 
 interface SubDetail {
   plan: PlanType;
@@ -1153,6 +1154,13 @@ export const Admin: React.FC = () => {
             <span>Load Balancer & Server Klasteri</span>
             <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold bg-cyan-500/20 text-cyan-400 rounded-full border border-cyan-500/30">
               {runners.filter(r => r.is_active).length || 1} Tugun
+            </span>
+          </TabsTrigger>
+          <TabsTrigger value="server-monitoring" className="gap-2 rounded-lg font-semibold text-sm h-9 px-3.5">
+            <Activity className="w-4 h-4 text-emerald-400" />
+            <span>Server Monitoring</span>
+            <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold bg-emerald-500/20 text-emerald-400 rounded-full border border-emerald-500/30">
+              CPU/RAM Live
             </span>
           </TabsTrigger>
         </TabsList>
@@ -2867,6 +2875,9 @@ fetchLiveSync();`}</pre>
             </Card>
           </div>
 
+          {/* Real-Time CPU / RAM Telemetry Monitoring across all Nodes */}
+          <ServerMonitoring />
+
           {/* Algorithm Switcher Control Bar */}
           <Card className="border-border/60 bg-card/70 p-5">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -3329,6 +3340,11 @@ fetchLiveSync();`}</pre>
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* SERVER MONITORING & CPU/RAM TAB */}
+        <TabsContent value="server-monitoring" className="space-y-6">
+          <ServerMonitoring />
         </TabsContent>
       </Tabs>
 

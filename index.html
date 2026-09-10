@@ -218,41 +218,96 @@
           return false;
         };
 
-        // Early CSS Cascade Layers (@layer) Unwrapper for older browsers (Chrome < 99, Android 5/6 WebView)
-        if (typeof window.CSSLayerBlockRule === 'undefined') {
+        // Early CSS Compatibility Engine for older browsers (OKLCH, color-mix, :where, @layer)
+        var needsCssCompat = !window.CSS || !window.CSS.supports || !window.CSS.supports('color', 'oklch(0.5 0.2 100)') || typeof window.CSSLayerBlockRule === 'undefined';
+        if (needsCssCompat) {
+          function oklchToRgbJs(lStr, cStr, hStr, aStr) {
+            var L = parseFloat(lStr);
+            if (lStr.indexOf('%') !== -1) L = L / 100;
+            if (L > 1) L = L / 100;
+            var C = parseFloat(cStr);
+            var hRad = (parseFloat(hStr) * Math.PI) / 180;
+            var a = C * Math.cos(hRad);
+            var b = C * Math.sin(hRad);
+            var l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+            var m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+            var s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+            var l3 = l_ * l_ * l_;
+            var m3 = m_ * m_ * m_;
+            var s3 = s_ * s_ * s_;
+            var rLin = +4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3;
+            var gLin = -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3;
+            var bLin = -0.0041960863 * l3 - 0.7034186147 * m3 + 1.7076147010 * s3;
+            function gamma(v) {
+              var c = Math.max(0, Math.min(1, v));
+              return c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+            }
+            var R = Math.round(gamma(rLin) * 255);
+            var G = Math.round(gamma(gLin) * 255);
+            var B = Math.round(gamma(bLin) * 255);
+            var alpha = 1;
+            if (aStr) {
+              alpha = aStr.indexOf('%') !== -1 ? parseFloat(aStr) / 100 : parseFloat(aStr);
+            }
+            if (alpha < 0.999) {
+              return 'rgba(' + R + ',' + G + ',' + B + ',' + alpha.toFixed(2) + ')';
+            }
+            return 'rgb(' + R + ',' + G + ',' + B + ')';
+          }
+
           function unwrapCss(css) {
-            if (!css || css.indexOf('@layer') === -1) return css;
+            if (!css) return css;
             var res = css.replace(/@layer\s+[^;{]+;/g, '');
-            var out = [], i = 0, n = res.length;
-            while (i < n) {
-              if (res.indexOf('@layer', i) === i) {
-                var b = res.indexOf('{', i);
-                if (b !== -1) {
-                  var depth = 1, j = b + 1;
-                  while (j < n && depth > 0) {
-                    var c = res.charAt(j);
-                    if (c === '{') depth++;
-                    else if (c === '}') depth--;
-                    j++;
-                  }
-                  if (depth === 0) {
-                    out.push(unwrapCss(res.slice(b + 1, j - 1)));
-                    i = j;
-                    continue;
+            if (res.indexOf('@layer') !== -1) {
+              var out = [], i = 0, n = res.length;
+              while (i < n) {
+                if (res.indexOf('@layer', i) === i) {
+                  var b = res.indexOf('{', i);
+                  if (b !== -1) {
+                    var depth = 1, j = b + 1;
+                    while (j < n && depth > 0) {
+                      var c = res.charAt(j);
+                      if (c === '{') depth++;
+                      else if (c === '}') depth--;
+                      j++;
+                    }
+                    if (depth === 0) {
+                      out.push(unwrapCss(res.slice(b + 1, j - 1)));
+                      i = j;
+                      continue;
+                    }
                   }
                 }
+                out.push(res.charAt(i));
+                i++;
               }
-              out.push(res.charAt(i));
-              i++;
+              res = out.join('');
             }
-            return out.join('');
+            // OKLCH -> RGB
+            res = res.replace(/oklch\(\s*([\d.]+%?)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+%?))?\s*\)/g, function(_, l, c, h, a) {
+              return oklchToRgbJs(l, c, h, a);
+            });
+            // color-mix fallback
+            res = res.replace(/([a-zA-Z-]+)\s*:\s*color-mix\(in\s+oklab\s*,\s*([^,\s]+)\s+([\d.]+)%\s*,\s*transparent\s*\)/g, function(match, prop, color, pct) {
+              var fallback = color;
+              var alpha = (parseFloat(pct) / 100).toFixed(2);
+              if (color === 'var(--color-white)') fallback = 'rgba(255, 255, 255, ' + alpha + ')';
+              else if (color === 'var(--color-black)') fallback = 'rgba(0, 0, 0, ' + alpha + ')';
+              else if (color === 'var(--border)') fallback = 'rgba(255, 255, 255, 0.12)';
+              else if (color === 'currentcolor' || color === 'currentColor') fallback = 'rgba(160, 160, 160, ' + alpha + ')';
+              return prop + ':' + fallback + ';' + match;
+            });
+            // :where unwrap
+            res = res.replace(/:where\(([^)]+)\)/g, '$1');
+            res = res.replace(/:is\(([^)]+)\)/g, '$1');
+            return res;
           }
 
           function fixStyles() {
             var styles = document.getElementsByTagName('style');
             for (var i = 0; i < styles.length; i++) {
               var s = styles[i];
-              if (!s.__fixed && s.textContent && s.textContent.indexOf('@layer') !== -1) {
+              if (!s.__fixed && s.textContent && (s.textContent.indexOf('@layer') !== -1 || s.textContent.indexOf('oklch') !== -1 || s.textContent.indexOf(':where') !== -1)) {
                 s.textContent = unwrapCss(s.textContent);
                 s.__fixed = true;
               }
@@ -260,12 +315,12 @@
           }
 
           fixStyles();
-          setInterval(fixStyles, 300);
+          setInterval(fixStyles, 400);
         }
       })();
     </script>
     <style id="legacy-core-styles">
-      :root {
+      :root, .dark {
         --background: #09090b;
         --foreground: #fafafa;
         --card: #121215;
@@ -273,28 +328,59 @@
         --primary: #22c55e;
         --primary-foreground: #ffffff;
         --border: rgba(255, 255, 255, 0.12);
+        --input: rgba(255, 255, 255, 0.15);
+        --ring: #22c55e;
+        
         --color-background: #09090b;
         --color-foreground: #fafafa;
         --color-card: #121215;
         --color-primary: #22c55e;
         --color-border: rgba(255, 255, 255, 0.12);
-        --color-zinc-950: #09090b;
-        --color-zinc-900: #18181b;
-        --color-zinc-800: #27272a;
-        --color-zinc-700: #3f3f46;
-        --color-zinc-400: #a1a1aa;
-        --color-zinc-300: #d4d4d8;
+        --color-input: rgba(255, 255, 255, 0.15);
+        
+        --color-zinc-50: #fafafa;
+        --color-zinc-100: #f4f4f5;
         --color-zinc-200: #e4e4e7;
-        --color-white: #ffffff;
+        --color-zinc-300: #d4d4d8;
+        --color-zinc-400: #a1a1aa;
+        --color-zinc-500: #71717a;
+        --color-zinc-600: #52525b;
+        --color-zinc-700: #3f3f46;
+        --color-zinc-800: #27272a;
+        --color-zinc-900: #18181b;
+        --color-zinc-950: #09090b;
+        
+        --color-emerald-300: #6ee7b7;
         --color-emerald-400: #34d399;
         --color-emerald-500: #10b981;
         --color-emerald-600: #059669;
+        --color-emerald-700: #047857;
+        --color-emerald-800: #065f46;
+        --color-emerald-900: #064e3b;
         --color-emerald-950: #022c22;
+        
+        --color-sky-300: #7dd3fc;
         --color-sky-400: #38bdf8;
         --color-sky-500: #0ea5e9;
         --color-sky-600: #0284c7;
+        
+        --color-blue-400: #60a5fa;
+        --color-blue-500: #3b82f6;
+        --color-blue-600: #2563eb;
+        
         --color-amber-400: #fbbf24;
         --color-amber-500: #f59e0b;
+        --color-amber-600: #d97706;
+        
+        --color-red-400: #f87171;
+        --color-red-500: #ef4444;
+        --color-red-600: #dc2626;
+        --color-red-950: #450a0a;
+        
+        --color-white: #ffffff;
+        --color-black: #000000;
+        
+        --radius: 0.625rem;
       }
       body {
         margin: 0;
@@ -303,18 +389,68 @@
         color: #fafafa !important;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       }
-      /* Fallback for browsers that fail on CSS variables */
+      /* Fallback for browsers with broken or partial CSS support */
       .bg-zinc-950, .dark, body { background-color: #09090b; }
       .bg-zinc-900 { background-color: #18181b; }
       .bg-zinc-800 { background-color: #27272a; }
+      .bg-zinc-700 { background-color: #3f3f46; }
+      .bg-emerald-500 { background-color: #10b981; }
+      .bg-emerald-600 { background-color: #059669; }
+      .bg-blue-500 { background-color: #3b82f6; }
+      .bg-blue-600 { background-color: #2563eb; }
+      .bg-amber-500 { background-color: #f59e0b; }
+      .bg-red-500 { background-color: #ef4444; }
+      
       .text-white { color: #ffffff; }
       .text-zinc-200 { color: #e4e4e7; }
       .text-zinc-300 { color: #d4d4d8; }
       .text-zinc-400 { color: #a1a1aa; }
       .text-emerald-400 { color: #34d399; }
-      .bg-emerald-500 { background-color: #10b981; }
+      .text-emerald-500 { color: #10b981; }
+      .text-blue-400 { color: #60a5fa; }
+      .text-amber-400 { color: #fbbf24; }
+      .text-red-400 { color: #f87171; }
+      
       .border-zinc-800 { border-color: #27272a; }
       .border-zinc-700 { border-color: #3f3f46; }
+      .border-border { border-color: rgba(255, 255, 255, 0.12); }
+      
+      /* Spacing fallbacks for engines that drop :where() */
+      .space-y-1 > :not(:last-child) { margin-bottom: 0.25rem; }
+      .space-y-1\.5 > :not(:last-child) { margin-bottom: 0.375rem; }
+      .space-y-2 > :not(:last-child) { margin-bottom: 0.5rem; }
+      .space-y-2\.5 > :not(:last-child) { margin-bottom: 0.625rem; }
+      .space-y-3 > :not(:last-child) { margin-bottom: 0.75rem; }
+      .space-y-4 > :not(:last-child) { margin-bottom: 1rem; }
+      .space-y-5 > :not(:last-child) { margin-bottom: 1.25rem; }
+      .space-y-6 > :not(:last-child) { margin-bottom: 1.5rem; }
+      .space-y-8 > :not(:last-child) { margin-bottom: 2rem; }
+      .space-x-1 > :not(:last-child) { margin-right: 0.25rem; }
+      .space-x-2 > :not(:last-child) { margin-right: 0.5rem; }
+      .space-x-3 > :not(:last-child) { margin-right: 0.75rem; }
+      .space-x-4 > :not(:last-child) { margin-right: 1rem; }
+      .divide-y > :not(:last-child) { border-bottom-width: 1px; }
+
+      /* Opacity background/border fallbacks for browsers lacking color-mix() */
+      .bg-zinc-900\/50, [class*="bg-zinc-900/50"] { background-color: rgba(24, 24, 27, 0.5); }
+      .bg-zinc-900\/80, [class*="bg-zinc-900/80"] { background-color: rgba(24, 24, 27, 0.8); }
+      .bg-zinc-800\/50, [class*="bg-zinc-800/50"] { background-color: rgba(39, 39, 42, 0.5); }
+      .bg-emerald-500\/10, [class*="bg-emerald-500/10"] { background-color: rgba(16, 185, 129, 0.1); }
+      .bg-emerald-500\/20, [class*="bg-emerald-500/20"] { background-color: rgba(16, 185, 129, 0.2); }
+      .bg-blue-500\/10, [class*="bg-blue-500/10"] { background-color: rgba(59, 130, 246, 0.1); }
+      .bg-amber-500\/10, [class*="bg-amber-500/10"] { background-color: rgba(245, 158, 11, 0.1); }
+      .bg-red-500\/10, [class*="bg-red-500/10"] { background-color: rgba(239, 68, 68, 0.1); }
+      .bg-white\/5, [class*="bg-white/5"] { background-color: rgba(255, 255, 255, 0.05); }
+      .bg-white\/10, [class*="bg-white/10"] { background-color: rgba(255, 255, 255, 0.1); }
+      .border-white\/10, [class*="border-white/10"] { border-color: rgba(255, 255, 255, 0.1); }
+      .border-white\/5, [class*="border-white/5"] { border-color: rgba(255, 255, 255, 0.05); }
+      .border-white\/15, [class*="border-white/15"] { border-color: rgba(255, 255, 255, 0.15); }
+      .border-emerald-500\/20, [class*="border-emerald-500/20"] { border-color: rgba(16, 185, 129, 0.2); }
+      .border-emerald-500\/30, [class*="border-emerald-500/30"] { border-color: rgba(16, 185, 129, 0.3); }
+      .text-white\/70, [class*="text-white/70"] { color: rgba(255, 255, 255, 0.7); }
+      .text-white\/80, [class*="text-white/80"] { color: rgba(255, 255, 255, 0.8); }
+      .text-white\/60, [class*="text-white/60"] { color: rgba(255, 255, 255, 0.6); }
+      .text-zinc-400\/80, [class*="text-zinc-400/80"] { color: rgba(161, 161, 170, 0.8); }
     </style>
   </head>
   <body class="bg-[#09090b] text-slate-100" style="margin: 0; padding: 0; background-color: #09090b; color: #fafafa;">
