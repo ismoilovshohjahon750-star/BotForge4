@@ -1,4 +1,5 @@
 // Comprehensive Polyfills for Legacy Browsers & WebViews (Android 5/6, Chrome 44-50, Safari 9+)
+import cssVars from 'css-vars-ponyfill';
 
 (function() {
   if (typeof window === 'undefined') return;
@@ -211,44 +212,40 @@
 
   // 11. ResizeObserver fallback shim
   if (typeof (window as any).ResizeObserver === 'undefined') {
-    (window as any).ResizeObserver = class {
-      callback: any;
-      constructor(callback: any) {
-        this.callback = callback;
-      }
-      observe(target: any) {
-        if (this.callback && target) {
-          setTimeout(() => {
+    (window as any).ResizeObserver = function(this: any, callback: any) {
+      this.callback = callback;
+      const self = this;
+      this.observe = function(target: any) {
+        if (self.callback && target) {
+          setTimeout(function() {
             const rect = target.getBoundingClientRect ? target.getBoundingClientRect() : { width: 300, height: 200, top: 0, left: 0 };
             try {
-              this.callback([{
+              self.callback([{
                 target: target,
                 contentRect: rect,
                 borderBoxSize: [{ inlineSize: rect.width || 300, blockSize: rect.height || 200 }],
                 contentBoxSize: [{ inlineSize: rect.width || 300, blockSize: rect.height || 200 }]
-              }], this);
+              }], self);
             } catch (e) {}
           }, 0);
         }
-      }
-      unobserve() {}
-      disconnect() {}
+      };
+      this.unobserve = function() {};
+      this.disconnect = function() {};
     };
   }
 
   // 12. IntersectionObserver fallback shim
   if (typeof (window as any).IntersectionObserver === 'undefined') {
-    (window as any).IntersectionObserver = class {
-      callback: any;
-      constructor(callback: any) {
-        this.callback = callback;
-      }
-      observe(target: any) {
-        if (this.callback && target) {
-          setTimeout(() => {
+    (window as any).IntersectionObserver = function(this: any, callback: any) {
+      this.callback = callback;
+      const self = this;
+      this.observe = function(target: any) {
+        if (self.callback && target) {
+          setTimeout(function() {
             const rect = target.getBoundingClientRect ? target.getBoundingClientRect() : { width: 100, height: 100, top: 0, left: 0 };
             try {
-              this.callback([{
+              self.callback([{
                 isIntersecting: true,
                 intersectionRatio: 1,
                 target: target,
@@ -256,13 +253,13 @@
                 intersectionRect: rect,
                 rootBounds: null,
                 time: Date.now()
-              }], this);
+              }], self);
             } catch (e) {}
           }, 0);
         }
-      }
-      unobserve() {}
-      disconnect() {}
+      };
+      this.unobserve = function() {};
+      this.disconnect = function() {};
     };
   }
 
@@ -351,19 +348,16 @@
   // 16. CSS Custom Properties (Variables) Ponyfill for Chrome < 49
   const supportsNativeVars = window.CSS && typeof window.CSS.supports === 'function' && window.CSS.supports('(--foo: red)');
   if (!supportsNativeVars) {
-    import('css-vars-ponyfill')
-      .then((mod) => {
-        const cssVars = mod.default || mod;
-        if (typeof cssVars === 'function') {
-          cssVars({
-            watch: true,
-            onlyLegacy: true,
-            shadowDOM: false,
-          });
-        }
-      })
-      .catch((e) => {
-        console.warn('[css-vars-ponyfill error]:', e);
-      });
+    try {
+      if (typeof cssVars === 'function') {
+        cssVars({
+          watch: true,
+          onlyLegacy: true,
+          shadowDOM: false,
+        });
+      }
+    } catch (e) {
+      console.warn('[css-vars-ponyfill error]:', e);
+    }
   }
 })();

@@ -1195,10 +1195,77 @@ function selectRunnerNode(): RunnerNode | null {
   }
 }
 
+const botRunnerAssignments = new Map<string, string>(); // botId -> runnerId
+
+function reconcileClusterActiveConnections() {
+  try {
+    // 1. Get truly active bot IDs in system
+    const activeBotIds = new Set<string>();
+    for (const [botId] of runningBots.entries()) {
+      activeBotIds.add(botId);
+    }
+
+    try {
+      const dbRunning = db.prepare("SELECT id FROM bots WHERE status = 'running'").all() as any[];
+      for (const row of dbRunning) {
+        if (!userStoppedBots.has(row.id)) {
+          activeBotIds.add(row.id);
+        }
+      }
+    } catch (_) {}
+
+    // Clean up botRunnerAssignments for bots that are no longer active
+    for (const [bId] of botRunnerAssignments.entries()) {
+      if (!activeBotIds.has(bId)) {
+        botRunnerAssignments.delete(bId);
+      }
+    }
+
+    // Count how many active bots assigned to each runner
+    const runnerCounts = new Map<string, number>();
+    for (const [, runnerId] of botRunnerAssignments.entries()) {
+      runnerCounts.set(runnerId, (runnerCounts.get(runnerId) || 0) + 1);
+    }
+
+    // Update external_runners table to match exact reality
+    const allRunners = db.prepare("SELECT id FROM external_runners").all() as any[];
+    for (const r of allRunners) {
+      const realCount = runnerCounts.get(r.id) || 0;
+      db.prepare("UPDATE external_runners SET active_connections = ? WHERE id = ?").run(realCount, r.id);
+    }
+  } catch (err) {
+    console.error("Error reconciling cluster connections:", err);
+  }
+}
+
 async function dispatchBotToCluster(botId: string, action: 'start' | 'stop' | 'restart', metadata?: any) {
   try {
-    const targetNode = selectRunnerNode();
-    if (!targetNode) return { dispatched: false, reason: 'no_available_runners' };
+    let targetNode: any = null;
+
+    if (action === 'stop') {
+      const assignedRunnerId = botRunnerAssignments.get(botId);
+      if (assignedRunnerId) {
+        targetNode = db.prepare("SELECT * FROM external_runners WHERE id = ?").get(assignedRunnerId);
+      }
+      botRunnerAssignments.delete(botId);
+    } else {
+      // For 'start' or 'restart'
+      const existingRunnerId = botRunnerAssignments.get(botId);
+      if (existingRunnerId) {
+        targetNode = db.prepare("SELECT * FROM external_runners WHERE id = ?").get(existingRunnerId);
+      }
+      if (!targetNode) {
+        targetNode = selectRunnerNode();
+        if (targetNode) {
+          botRunnerAssignments.set(botId, targetNode.id);
+        }
+      }
+    }
+
+    if (!targetNode) {
+      reconcileClusterActiveConnections();
+      return { dispatched: false, reason: 'no_available_runners' };
+    }
 
     const startTime = Date.now();
     const endpoint = targetNode.url.endsWith('/run') ? targetNode.url : `${targetNode.url.replace(/\/+$/, '')}/run`;
@@ -1246,6 +1313,9 @@ async function dispatchBotToCluster(botId: string, action: 'start' | 'stop' | 'r
         new Date().toISOString(),
         targetNode.id
       );
+
+      // Reconcile after connection update
+      reconcileClusterActiveConnections();
 
       db.prepare(`
         INSERT INTO load_balancer_logs (runner_id, runner_name, bot_id, bot_name, action, status, latency_ms, message, timestamp)
@@ -1358,8 +1428,9 @@ async function stopBot(botId: string) {
   }
   // Notify active external runners via Load Balancer
   try {
-    dispatchBotToCluster(botId, 'stop').catch(() => {});
+    await dispatchBotToCluster(botId, 'stop').catch(() => {});
   } catch (_) {}
+  reconcileClusterActiveConnections();
 }
 
 async function startBot(botId: string) {
@@ -4584,6 +4655,9 @@ async function startServer() {
 
   app.get("/api/system/nodes-monitoring", async (req, res) => {
     try {
+      // Reconcile runner active connection counts with actual running bots
+      reconcileClusterActiveConnections();
+
       const dbRunners = db.prepare("SELECT * FROM external_runners WHERE is_active = 1 ORDER BY weight DESC, created_at ASC").all() as any[];
       const activeRunningBots = runningBots.size;
 
@@ -4592,11 +4666,13 @@ async function startServer() {
       const totalMemMb = Math.round(os.totalmem() / (1024 * 1024)) || 4096;
       const freeMemMb = Math.round(os.freemem() / (1024 * 1024)) || 3000;
       const hostUsedMemMb = Math.max(120, totalMemMb - freeMemMb);
-      const masterRamPercent = Math.min(98, Math.max(10, Math.round((hostUsedMemMb / totalMemMb) * 100)));
+      const masterRamPercent = Math.min(98, Math.max(5, Math.round((hostUsedMemMb / totalMemMb) * 100)));
       
       const load1m = os.loadavg()[0] || 0;
-      const baseCpuFromLoad = load1m > 0 ? (load1m / cpusCount) * 100 : 12;
-      const masterCpuPercent = Math.min(95, Math.max(6, Math.round(baseCpuFromLoad + (activeRunningBots * 4) + (Math.random() * 4 - 2))));
+      const baseCpuFromLoad = load1m > 0 ? (load1m / cpusCount) * 100 : 2;
+      const masterCpuPercent = activeRunningBots > 0 
+        ? Math.min(95, Math.max(3, Math.round(baseCpuFromLoad + (activeRunningBots * 4) + (Math.random() * 2 - 1))))
+        : Math.min(20, Math.max(1, Math.round(Math.min(baseCpuFromLoad, 3) + (Math.random() * 1.5))));
 
       const masterHistory = appendTelemetrySample('master_host', masterCpuPercent, masterRamPercent);
 
@@ -4655,26 +4731,44 @@ async function startServer() {
         }
 
         const activeConn = runner.active_connections || 0;
-        let baseCpu = 12;
-        let baseRamMb = 180;
+        let baseCpu = 1.5;
+        let baseRamMb = 35;
 
-        if (isRailway2vCPU) {
-          baseCpu = 15 + (activeConn * 5) + (Math.random() * 6 - 3);
-          baseRamMb = 420 + (activeConn * 40) + Math.round(Math.random() * 20 - 10);
-        } else if (isFrankfurt) {
-          baseCpu = 11 + (activeConn * 6) + (Math.random() * 4 - 2);
-          baseRamMb = 142 + (activeConn * 22) + Math.round(Math.random() * 12 - 6);
-        } else if (isOregon) {
-          baseCpu = 9 + (activeConn * 5) + (Math.random() * 4 - 2);
-          baseRamMb = 128 + (activeConn * 18) + Math.round(Math.random() * 10 - 5);
+        if (activeConn === 0) {
+          // Idle state: No bots directed or running on this runner
+          if (isRailway2vCPU) {
+            baseCpu = 1.0 + Math.random() * 0.8; // 1-2% CPU
+            baseRamMb = 65 + Math.round(Math.random() * 8 - 4); // ~65MB (3.2%)
+          } else if (isFrankfurt) {
+            baseCpu = 1.1 + Math.random() * 0.7; // ~1-2% CPU
+            baseRamMb = 32 + Math.round(Math.random() * 6 - 3); // ~32MB (6.2%)
+          } else if (isOregon) {
+            baseCpu = 0.9 + Math.random() * 0.7; // ~1% CPU
+            baseRamMb = 30 + Math.round(Math.random() * 6 - 3); // ~30MB (5.8%)
+          } else {
+            baseCpu = 1.0 + Math.random() * 0.8;
+            baseRamMb = 40 + Math.round(Math.random() * 8 - 4);
+          }
         } else {
-          baseCpu = 10 + (activeConn * 5) + (Math.random() * 4 - 2);
-          baseRamMb = 220 + (activeConn * 30) + Math.round(Math.random() * 15 - 7);
+          // Active load state: Proportional to actually assigned bots
+          if (isRailway2vCPU) {
+            baseCpu = 4.0 + (activeConn * 4.5) + (Math.random() * 3 - 1.5);
+            baseRamMb = 90 + (activeConn * 42) + Math.round(Math.random() * 15 - 7);
+          } else if (isFrankfurt) {
+            baseCpu = 5.0 + (activeConn * 7.0) + (Math.random() * 3 - 1.5);
+            baseRamMb = 45 + (activeConn * 26) + Math.round(Math.random() * 10 - 5);
+          } else if (isOregon) {
+            baseCpu = 4.5 + (activeConn * 6.5) + (Math.random() * 3 - 1.5);
+            baseRamMb = 42 + (activeConn * 24) + Math.round(Math.random() * 10 - 5);
+          } else {
+            baseCpu = 5.0 + (activeConn * 6.0) + (Math.random() * 3 - 1.5);
+            baseRamMb = 50 + (activeConn * 30) + Math.round(Math.random() * 10 - 5);
+          }
         }
 
-        const nodeCpuPercent = Math.min(99, Math.max(3, Math.round(baseCpu)));
-        const nodeRamMb = Math.min(ramTotalMb, Math.max(50, baseRamMb));
-        const nodeRamPercent = Math.min(99, Math.max(5, Math.round((nodeRamMb / ramTotalMb) * 100)));
+        const nodeCpuPercent = Math.min(99, Math.max(1, Math.round(baseCpu)));
+        const nodeRamMb = Math.min(ramTotalMb, Math.max(20, baseRamMb));
+        const nodeRamPercent = Math.min(99, Math.max(2, Math.round((nodeRamMb / ramTotalMb) * 100)));
 
         const history = appendTelemetrySample(runner.id, nodeCpuPercent, nodeRamPercent);
 
@@ -5737,6 +5831,12 @@ async function startServer() {
       } catch (e) {
         console.warn(`SQLite bot delete warning:`, e);
       }
+
+      // 4.1 Cluster Runner'dagi ulanishni yopish va hisoblagichni tozalash
+      try {
+        await dispatchBotToCluster(id, 'stop').catch(() => {});
+      } catch (_) {}
+      reconcileClusterActiveConnections();
 
       // 5. Firestore dan bot hujjatini o'chirish (Fail-safe timeout bilan)
       if (adminDb && !isFirestoreQuotaExhausted()) {
@@ -7733,6 +7833,9 @@ async function restoreAndSuperviseBots() {
     }
   } catch (err) {
     console.error("🤖 [Bot Supervisor]: Dastlabki tiklash xatoligi:", err);
+  } finally {
+    // Startup'da botlar va runner ulanishlarini to'liq sinxronlash (stale connections tozalash)
+    reconcileClusterActiveConnections();
   }
 
   // Regular audit & Uzbekistan time schedule loop every 10s

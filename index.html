@@ -207,19 +207,39 @@
         // Global uncaught error listener for legacy and webview environments
         window.__hasAppLoaded = false;
         window.onerror = function(msg, url, lineNo, columnNo, error) {
-          console.warn('[Global Early Error]:', msg, 'at', url, lineNo);
-          if (!window.__hasAppLoaded) {
-            var errorDetails = document.getElementById('legacy-error-details');
-            if (errorDetails) {
-              errorDetails.style.display = 'block';
-              errorDetails.innerText = 'Xatolik: ' + (msg || 'Noma\'lum xatolik yuz berdi');
-            }
+          var strMsg = String(msg || '');
+          // Ignore harmless Vite legacy feature detection tests
+          if (
+            strMsg.indexOf('async function*') !== -1 ||
+            strMsg.indexOf('import.meta') !== -1 ||
+            strMsg.indexOf("Unexpected token '*'") !== -1 ||
+            strMsg.indexOf('Unexpected token import') !== -1 ||
+            strMsg.indexOf('ResizeObserver') !== -1
+          ) {
+            console.warn('[Feature-test ignored]:', strMsg);
+            return true;
           }
+
+          console.warn('[Global Early Error]:', msg, 'at', url, lineNo);
+          setTimeout(function() {
+            if (!window.__hasAppLoaded) {
+              var errorDetails = document.getElementById('legacy-error-details');
+              if (errorDetails) {
+                errorDetails.style.display = 'block';
+                errorDetails.innerText = 'Xatolik: ' + strMsg;
+              }
+            }
+          }, 3500);
           return false;
         };
 
         // Early CSS Compatibility Engine for older browsers (OKLCH, color-mix, :where, @layer)
-        var needsCssCompat = !window.CSS || !window.CSS.supports || !window.CSS.supports('color', 'oklch(0.5 0.2 100)') || typeof window.CSSLayerBlockRule === 'undefined';
+        var needsCssCompat = true;
+        try {
+          needsCssCompat = !window.CSS || typeof window.CSS.supports !== 'function' || !window.CSS.supports('color', 'oklch(0.5 0.2 100)') || typeof window.CSSLayerBlockRule === 'undefined';
+        } catch (cssErr) {
+          needsCssCompat = true;
+        }
         if (needsCssCompat) {
           function oklchToRgbJs(lStr, cStr, hStr, aStr) {
             var L = parseFloat(lStr);
@@ -469,11 +489,6 @@
         </button>
       </div>
     </div>
-    <script>
-      window.addEventListener('DOMContentLoaded', function() {
-        window.__hasAppLoaded = true;
-      });
-    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

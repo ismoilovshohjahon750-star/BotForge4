@@ -1,5 +1,6 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import legacy from '@vitejs/plugin-legacy';
 import path from 'path';
 import {defineConfig, Plugin} from 'vite';
 
@@ -144,13 +145,21 @@ export default defineConfig(() => {
       react(),
       tailwindcss(),
       legacyCssCompatPlugin(),
+      legacy({
+        targets: ['defaults', 'not IE 11', 'chrome >= 49', 'safari >= 9', 'android >= 4.4', 'edge >= 15'],
+        additionalLegacyPolyfills: ['regenerator-runtime/runtime'],
+      }),
     ],
+    esbuild: {
+      target: 'es2015',
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),
       },
     },
     build: {
+      target: 'es2015',
       chunkSizeWarningLimit: 1500,
     },
     server: {

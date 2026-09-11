@@ -682,8 +682,8 @@ export const ServerMonitoring: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <span className="text-emerald-400 font-medium">
-                        {node.metrics.activeBots > 0 ? `${node.metrics.activeBots} ta bot yo'naltirilgan` : "Navbatda (Zaxirada)"}
+                      <span className={node.metrics.activeBots > 0 ? "text-emerald-400 font-medium" : "text-muted-foreground/80 font-normal"}>
+                        {node.metrics.activeBots > 0 ? `${node.metrics.activeBots} ta bot yo'naltirilgan` : "Bo'sh (0 ta bot)"}
                       </span>
                     </div>
                   </div>

@@ -26,6 +26,11 @@ if (typeof window !== 'undefined') {
 const rootElement = document.getElementById('root');
 if (rootElement) {
   try {
+    if (typeof window !== 'undefined') {
+      (window as any).__hasAppLoaded = true;
+      const legacyErr = document.getElementById('legacy-error-details');
+      if (legacyErr) legacyErr.style.display = 'none';
+    }
     const root = createRoot(rootElement);
     root.render(
       <StrictMode>
