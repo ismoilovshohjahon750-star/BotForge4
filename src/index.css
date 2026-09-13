@@ -61,6 +61,9 @@
 }
 
 @layer base {
+  :root, html, body {
+    color-scheme: dark;
+  }
   * {
     @apply border-border;
   }

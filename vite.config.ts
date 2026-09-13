@@ -119,6 +119,13 @@ const COLOR_FALLBACK_MAP: Record<string, string> = {
   'var(--color-emerald-800)': '6, 95, 70',
   'var(--color-emerald-900)': '6, 78, 59',
   'var(--color-emerald-950)': '2, 44, 34',
+  'var(--color-teal-300)': '94, 234, 212',
+  'var(--color-teal-400)': '45, 212, 191',
+  'var(--color-teal-500)': '20, 184, 166',
+  'var(--color-teal-600)': '13, 148, 136',
+  'var(--color-cyan-300)': '103, 232, 249',
+  'var(--color-cyan-400)': '34, 211, 238',
+  'var(--color-cyan-500)': '6, 182, 212',
   'var(--color-sky-300)': '125, 211, 252',
   'var(--color-sky-400)': '56, 189, 248',
   'var(--color-sky-500)': '14, 165, 233',
@@ -135,6 +142,36 @@ const COLOR_FALLBACK_MAP: Record<string, string> = {
   'var(--color-red-600)': '220, 38, 38',
   'var(--color-red-950)': '69, 10, 10',
 };
+
+function resolveColorToRgb(str: string): string {
+  if (!str) return '9, 9, 11';
+  const clean = str.trim();
+  const lower = clean.toLowerCase();
+  if (COLOR_FALLBACK_MAP[lower]) return COLOR_FALLBACK_MAP[lower];
+  if (COLOR_FALLBACK_MAP[clean]) return COLOR_FALLBACK_MAP[clean];
+
+  if (clean.startsWith('#')) {
+    let hex = clean.slice(1);
+    if (hex.length === 3 || hex.length === 4) {
+      hex = hex.charAt(0) + hex.charAt(0) + hex.charAt(1) + hex.charAt(1) + hex.charAt(2) + hex.charAt(2);
+    }
+    if (hex.length >= 6) {
+      const r = parseInt(hex.substring(0, 2), 16);
+      const g = parseInt(hex.substring(2, 4), 16);
+      const b = parseInt(hex.substring(4, 6), 16);
+      if (!isNaN(r) && !isNaN(g) && !isNaN(b)) {
+        return `${r}, ${g}, ${b}`;
+      }
+    }
+  }
+
+  const rgbaMatch = clean.match(/rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (rgbaMatch) {
+    return `${rgbaMatch[1]}, ${rgbaMatch[2]}, ${rgbaMatch[3]}`;
+  }
+
+  return '9, 9, 11';
+}
 
 function unwrapSupportsRule(css: string, keyword: string): string {
   if (!css || !css.includes(keyword)) return css;
@@ -182,24 +219,22 @@ function compatCssTransform(css: string): string {
 
   // 4. Transform color-mix declarations into valid rgba fallbacks
   result = result.replace(
-    /([a-zA-Z-]+)\s*:\s*color-mix\(\s*in\s+[a-zA-Z-]+\s*,\s*([^,]+?)\s+([\d.]+)%\s*,\s*transparent\s*\)/g,
+    /([a-zA-Z-]+)\s*:\s*color-mix\(\s*in\s+[a-zA-Z-]+\s*,\s*([\s\S]+?)\s+([\d.]+)%\s*,\s*transparent\s*\)/g,
     (match, prop, colorStr, pct) => {
-      const cleanColor = colorStr.trim();
       const alpha = (parseFloat(pct) / 100).toFixed(2);
-      const rgb = COLOR_FALLBACK_MAP[cleanColor.toLowerCase()] || COLOR_FALLBACK_MAP[cleanColor];
-      const fallbackRgba = rgb ? `rgba(${rgb}, ${alpha})` : `rgba(255, 255, 255, ${alpha})`;
+      const rgb = resolveColorToRgb(colorStr);
+      const fallbackRgba = `rgba(${rgb}, ${alpha})`;
       return `${prop}:${fallbackRgba};${match}`;
     }
   );
 
   // 5. Transform standalone color-mix calls inside any remaining declarations
   result = result.replace(
-    /color-mix\(\s*in\s+[a-zA-Z-]+\s*,\s*([^,]+?)\s+([\d.]+)%\s*,\s*transparent\s*\)/g,
+    /color-mix\(\s*in\s+[a-zA-Z-]+\s*,\s*([\s\S]+?)\s+([\d.]+)%\s*,\s*transparent\s*\)/g,
     (_, colorStr, pct) => {
-      const cleanColor = colorStr.trim();
       const alpha = (parseFloat(pct) / 100).toFixed(2);
-      const rgb = COLOR_FALLBACK_MAP[cleanColor.toLowerCase()] || COLOR_FALLBACK_MAP[cleanColor];
-      return rgb ? `rgba(${rgb}, ${alpha})` : `rgba(255, 255, 255, ${alpha})`;
+      const rgb = resolveColorToRgb(colorStr);
+      return `rgba(${rgb}, ${alpha})`;
     }
   );
 
