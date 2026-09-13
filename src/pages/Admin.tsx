@@ -10,7 +10,7 @@ import { LogoIcon } from '../components/Logo';
 import { collection, onSnapshot, doc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { safeSetDoc, safeAddDoc, safeDeleteDoc, isFirestoreQuotaExhausted } from '../lib/safeFirestore';
-import { Profile, Bot as BotType, PlanType } from '../types';
+import type { Profile, Bot as BotType, PlanType } from '../types';
 import { toast } from 'sonner';
 import { Input } from '../components/ui/input';
 import { handleFirestoreError, OperationType } from '../lib/firestore-utils';

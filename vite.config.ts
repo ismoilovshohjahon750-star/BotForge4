@@ -81,35 +81,132 @@ function oklchToRgb(lStr: string, cStr: string, hStr: string, aStr?: string): st
   return `rgb(${R}, ${G}, ${B})`;
 }
 
+const COLOR_FALLBACK_MAP: Record<string, string> = {
+  'var(--color-white)': '255, 255, 255',
+  '#fff': '255, 255, 255',
+  '#ffffff': '255, 255, 255',
+  'var(--color-black)': '0, 0, 0',
+  '#000': '0, 0, 0',
+  '#000000': '0, 0, 0',
+  'currentcolor': '160, 160, 160',
+  'currentColor': '160, 160, 160',
+  'var(--border)': '255, 255, 255',
+  'var(--input)': '255, 255, 255',
+  'var(--ring)': '34, 197, 94',
+  'var(--primary)': '34, 197, 94',
+  'var(--destructive)': '239, 68, 68',
+  'var(--background)': '9, 9, 11',
+  'var(--foreground)': '250, 250, 250',
+  'var(--card)': '18, 18, 21',
+  'var(--muted)': '30, 30, 36',
+  'var(--muted-foreground)': '161, 161, 170',
+  'var(--color-zinc-50)': '250, 250, 250',
+  'var(--color-zinc-100)': '244, 244, 245',
+  'var(--color-zinc-200)': '228, 228, 231',
+  'var(--color-zinc-300)': '212, 212, 216',
+  'var(--color-zinc-400)': '161, 161, 170',
+  'var(--color-zinc-500)': '113, 113, 122',
+  'var(--color-zinc-600)': '82, 82, 91',
+  'var(--color-zinc-700)': '63, 63, 70',
+  'var(--color-zinc-800)': '39, 39, 42',
+  'var(--color-zinc-900)': '24, 24, 27',
+  'var(--color-zinc-950)': '9, 9, 11',
+  'var(--color-emerald-300)': '110, 231, 183',
+  'var(--color-emerald-400)': '52, 211, 153',
+  'var(--color-emerald-500)': '16, 185, 129',
+  'var(--color-emerald-600)': '5, 150, 105',
+  'var(--color-emerald-700)': '4, 120, 87',
+  'var(--color-emerald-800)': '6, 95, 70',
+  'var(--color-emerald-900)': '6, 78, 59',
+  'var(--color-emerald-950)': '2, 44, 34',
+  'var(--color-sky-300)': '125, 211, 252',
+  'var(--color-sky-400)': '56, 189, 248',
+  'var(--color-sky-500)': '14, 165, 233',
+  'var(--color-sky-600)': '2, 132, 199',
+  'var(--color-blue-400)': '96, 165, 250',
+  'var(--color-blue-500)': '59, 130, 246',
+  'var(--color-blue-600)': '37, 99, 235',
+  'var(--color-amber-400)': '251, 191, 36',
+  'var(--color-amber-500)': '245, 158, 11',
+  'var(--color-amber-600)': '217, 119, 6',
+  'var(--color-amber-900)': '120, 53, 15',
+  'var(--color-red-400)': '248, 113, 113',
+  'var(--color-red-500)': '239, 68, 68',
+  'var(--color-red-600)': '220, 38, 38',
+  'var(--color-red-950)': '69, 10, 10',
+};
+
+function unwrapSupportsRule(css: string, keyword: string): string {
+  if (!css || !css.includes(keyword)) return css;
+  const pattern = new RegExp(`@supports\\s*\\([^{]*${keyword}[^{]*\\)\\s*\\{`, 'g');
+  let result = css;
+  while (true) {
+    pattern.lastIndex = 0;
+    const match = pattern.exec(result);
+    if (!match) break;
+    const start = match.index;
+    const bracePos = match.index + match[0].length - 1;
+    let depth = 1;
+    let j = bracePos + 1;
+    const n = result.length;
+    while (j < n && depth > 0) {
+      const ch = result[j];
+      if (ch === '{') depth++;
+      else if (ch === '}') depth--;
+      j++;
+    }
+    if (depth === 0) {
+      const inner = result.slice(bracePos + 1, j - 1);
+      result = result.slice(0, start) + inner + result.slice(j);
+    } else {
+      break;
+    }
+  }
+  return result;
+}
+
 function compatCssTransform(css: string): string {
   if (!css) return css;
 
   // 1. Unwrap @layer
   let result = unwrapCssLayers(css);
 
-  // 2. Convert OKLCH to sRGB
+  // 2. Unwrap @supports color-mix and backdrop-filter
+  result = unwrapSupportsRule(result, 'color-mix');
+  result = unwrapSupportsRule(result, 'backdrop-filter');
+
+  // 3. Convert OKLCH to sRGB
   result = result.replace(/oklch\(\s*([\d.]+%?)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+%?))?\s*\)/g, (_, l, c, h, a) =>
     oklchToRgb(l, c, h, a)
   );
 
-  // 3. Fallbacks for color-mix declarations
+  // 4. Transform color-mix declarations into valid rgba fallbacks
   result = result.replace(
-    /([a-zA-Z-]+)\s*:\s*color-mix\(in\s+oklab\s*,\s*([^,\s]+)\s+([\d.]+)%\s*,\s*transparent\s*\)/g,
-    (match, prop, color, pct) => {
-      let fallback = color;
+    /([a-zA-Z-]+)\s*:\s*color-mix\(\s*in\s+[a-zA-Z-]+\s*,\s*([^,]+?)\s+([\d.]+)%\s*,\s*transparent\s*\)/g,
+    (match, prop, colorStr, pct) => {
+      const cleanColor = colorStr.trim();
       const alpha = (parseFloat(pct) / 100).toFixed(2);
-      if (color === 'var(--color-white)') fallback = `rgba(255, 255, 255, ${alpha})`;
-      else if (color === 'var(--color-black)') fallback = `rgba(0, 0, 0, ${alpha})`;
-      else if (color === 'var(--border)') fallback = `rgba(255, 255, 255, 0.12)`;
-      else if (color === 'currentcolor' || color === 'currentColor') fallback = `rgba(160, 160, 160, ${alpha})`;
-      return `${prop}:${fallback};${match}`;
+      const rgb = COLOR_FALLBACK_MAP[cleanColor.toLowerCase()] || COLOR_FALLBACK_MAP[cleanColor];
+      const fallbackRgba = rgb ? `rgba(${rgb}, ${alpha})` : `rgba(255, 255, 255, ${alpha})`;
+      return `${prop}:${fallbackRgba};${match}`;
     }
   );
 
-  // 4. Unwrap :where(...) in selectors to standard selectors
+  // 5. Transform standalone color-mix calls inside any remaining declarations
+  result = result.replace(
+    /color-mix\(\s*in\s+[a-zA-Z-]+\s*,\s*([^,]+?)\s+([\d.]+)%\s*,\s*transparent\s*\)/g,
+    (_, colorStr, pct) => {
+      const cleanColor = colorStr.trim();
+      const alpha = (parseFloat(pct) / 100).toFixed(2);
+      const rgb = COLOR_FALLBACK_MAP[cleanColor.toLowerCase()] || COLOR_FALLBACK_MAP[cleanColor];
+      return rgb ? `rgba(${rgb}, ${alpha})` : `rgba(255, 255, 255, ${alpha})`;
+    }
+  );
+
+  // 6. Unwrap :where(...) in selectors to standard selectors
   result = result.replace(/:where\(([^)]+)\)/g, '$1');
 
-  // 5. Unwrap :is(...) simple wrappers
+  // 7. Unwrap :is(...) simple wrappers
   result = result.replace(/:is\(([^)]+)\)/g, '$1');
 
   return result;

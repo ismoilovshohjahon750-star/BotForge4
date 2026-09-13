@@ -11,7 +11,8 @@ import {
   signInWithPopup,
   signInWithRedirect,
   signInWithCredential,
-  GoogleAuthProvider
+  GoogleAuthProvider,
+  getAdditionalUserInfo
 } from 'firebase/auth';
 import { auth, googleProvider, githubProvider } from '../lib/firebase';
 import primaryConfig from '../../firebase-applet-config.json';
@@ -72,7 +73,13 @@ export const Auth: React.FC = () => {
     if (loading) return;
     try {
       setLoading(true);
-      await signInWithPopup(auth, googleProvider);
+      const res = await signInWithPopup(auth, googleProvider);
+      if (getAdditionalUserInfo(res)?.isNewUser) {
+        localStorage.setItem('botly_trigger_signup_feedback', 'true');
+        if (res.user?.uid) {
+          localStorage.setItem(`botly_new_signup_${res.user.uid}`, 'true');
+        }
+      }
       toast.success("Google orqali muvaffaqiyatli kirdingiz!");
       navigate('/dashboard');
     } catch (error: any) {
@@ -138,6 +145,10 @@ export const Auth: React.FC = () => {
 
         setSentEmailAddress(cleanEmail);
         setVerificationSent(true);
+        localStorage.setItem('botly_trigger_signup_feedback', 'true');
+        if (currentUser?.uid) {
+          localStorage.setItem(`botly_new_signup_${currentUser.uid}`, 'true');
+        }
         toast.success("Hisobingiz muvaffaqiyatli yaratildi! Tasdiqlash havolasi emailingizga yuborildi.");
       } catch (error: any) {
         if (error.code === 'auth/email-already-in-use') {

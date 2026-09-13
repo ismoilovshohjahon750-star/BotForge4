@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { db } from '../lib/firebase';
 import { collection, query, where, orderBy, onSnapshot, serverTimestamp, doc } from 'firebase/firestore';
 import { safeAddDoc, safeDeleteDoc, safeUpdateDoc } from '../lib/safeFirestore';
-import { ChatHistory } from '../types';
+import type { ChatHistory } from '../types';
 import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '../context/LanguageContext';
 import { LogoIcon } from '../components/Logo';
@@ -683,25 +683,22 @@ export const BotlyAi: React.FC = () => {
           className="relative max-w-xl w-full mx-auto"
         >
           {/* Main Rounded Input Bar */}
-          <div className="bg-[#111116]/95 border border-white/5 rounded-full px-5 py-3.5 flex items-center justify-between gap-3 shadow-[0_12px_45px_rgba(0,0,0,0.7)] backdrop-blur-xl">
-            
-
+          <div className="bg-[#111116] border border-white/10 rounded-full px-5 py-3.5 flex items-center justify-between gap-3 shadow-[0_12px_45px_rgba(0,0,0,0.7)] backdrop-blur-xl">
             {/* Input field */}
             <input 
               type="text"
               value={inputVal}
               onChange={(e) => setInputVal(e.target.value)}
               placeholder={t('botly_ask_placeholder', "Savolingizni yozing...")}
-              className="flex-grow bg-transparent border-0 outline-none text-slate-100 placeholder-slate-400 text-sm font-sans tracking-wide"
+              className="flex-grow bg-transparent border-none outline-none focus:outline-none focus:ring-0 text-slate-100 placeholder-slate-400 text-sm font-sans tracking-wide ring-0 shadow-none"
               disabled={loading}
             />
-
 
             {/* Send submission button */}
             <button
               type="submit"
               disabled={!inputVal.trim() || loading}
-              className="px-6 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-medium flex items-center gap-2 disabled:opacity-50 transition-all shadow-md active:scale-95 text-sm flex-shrink-0"
+              className="px-6 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-medium flex items-center gap-2 disabled:opacity-50 transition-all shadow-md active:scale-95 text-sm flex-shrink-0 cursor-pointer"
               title={t('common_send', 'Yuborish')}
             >
               <span>{t('common_send', 'Yuborish')}</span>

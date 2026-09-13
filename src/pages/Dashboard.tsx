@@ -5,21 +5,23 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Badge } from '../components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { Plus, Play, Square, RefreshCcw, FileUp, Terminal, Activity, FileText, Trash2, Search, Copy, Check, Radio, Clock, Shield, Cpu, Filter, X, ArrowLeft, Key, Eye, EyeOff, Settings, Sliders, Database, Github, Send, ExternalLink, Sparkles, Wand2, AlertTriangle, Mail, Zap } from 'lucide-react';
+import { Plus, Play, Square, Bot as BotIcon, RefreshCcw, FileUp, Terminal, Activity, FileText, Trash2, Search, Copy, Check, Radio, Clock, Shield, Cpu, Filter, X, ArrowLeft, Key, Eye, EyeOff, Settings, Sliders, Database, Github, Send, ExternalLink, Sparkles, Wand2, AlertTriangle, Mail, Zap } from 'lucide-react';
 import { collection, query, where, onSnapshot, addDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { GithubAuthProvider, signInWithPopup, linkWithPopup, sendEmailVerification } from 'firebase/auth';
 import { safeSetDoc, safeUpdateDoc, safeDeleteDoc, isFirestoreQuotaExhausted } from '../lib/safeFirestore';
 import { db, auth, githubProvider } from '../lib/firebase';
-import { Bot, BotStatus, BotLog } from '../types';
+import type { Bot, BotStatus, BotLog } from '../types';
 import { toast } from 'sonner';
 import {Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger} from '../components/ui/dialog';
 import { Input } from '../components/ui/input';
 import { handleFirestoreError, OperationType } from '../lib/firestore-utils';
 import { useTranslation } from '../context/LanguageContext';
+import { useFeedback } from '../context/FeedbackContext';
 
 export const Dashboard: React.FC = () => {
   const { user } = useAuth();
   const { t } = useTranslation();
+  const { openFeedback } = useFeedback();
   const [bots, setBots] = useState<Bot[]>([]);
   const [loading, setLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
@@ -61,6 +63,29 @@ export const Dashboard: React.FC = () => {
       localStorage.setItem('cloudbot_github_token', githubToken);
     }
   }, [githubToken]);
+
+  // Trigger feedback popup for newly registered users
+  useEffect(() => {
+    if (!user) return;
+    const isNewSignup =
+      localStorage.getItem('botly_trigger_signup_feedback') === 'true' ||
+      localStorage.getItem(`botly_new_signup_${user.uid}`) === 'true';
+    const alreadyShown = localStorage.getItem(`feedback_shown_signup_${user.uid}`) === 'true';
+
+    if (isNewSignup && !alreadyShown) {
+      const timer = setTimeout(() => {
+        openFeedback(0, {
+          title: "Platformamizga xush kelibsiz! ✨",
+          subtitle: "Botly haqidagi dastlabki fikr yoki taassurotingizni bildiring"
+        });
+        localStorage.removeItem('botly_trigger_signup_feedback');
+        localStorage.removeItem(`botly_new_signup_${user.uid}`);
+        localStorage.setItem(`feedback_shown_signup_${user.uid}`, 'true');
+      }, 1500);
+
+      return () => clearTimeout(timer);
+    }
+  }, [user, openFeedback]);
 
   const handleConnectGithub = async () => {
     try {
@@ -564,6 +589,18 @@ export const Dashboard: React.FC = () => {
       toast.success('Bot muvaffaqiyatli yuklandi va ishga tushirildi!');
       setUploadName('');
       setFile(null);
+
+      // Yangi foydalanuvchi 1 ta bot yuklagach fikrini bilish uchun baholash modali chiqadi
+      const firstBotKey = `feedback_shown_first_bot_${user.uid}`;
+      if (!localStorage.getItem(firstBotKey)) {
+        setTimeout(() => {
+          openFeedback(0, {
+            title: "Botingiz muvaffaqiyatli yuklandi! 🚀",
+            subtitle: "Bot yuklash tajribangiz qanday o'tdi? Botly haqida o'z fikringizni bildiring"
+          });
+          localStorage.setItem(firstBotKey, 'true');
+        }, 1800);
+      }
     } catch (error: any) {
       toast.error('Xatolik: ' + error.message);
     } finally {
@@ -660,6 +697,18 @@ export const Dashboard: React.FC = () => {
 
       setRepoUrl('');
       setCustomGithubName('');
+
+      // Yangi foydalanuvchi 1 ta bot yuklagach fikrini bilish uchun baholash modali chiqadi
+      const firstBotKey = `feedback_shown_first_bot_${user.uid}`;
+      if (!localStorage.getItem(firstBotKey)) {
+        setTimeout(() => {
+          openFeedback(0, {
+            title: "Botingiz muvaffaqiyatli yuklandi! 🚀",
+            subtitle: "Bot yuklash tajribangiz qanday o'tdi? Botly haqida o'z fikringizni bildiring"
+          });
+          localStorage.setItem(firstBotKey, 'true');
+        }, 1800);
+      }
     } catch (error: any) {
       toast.error('Xatolik: ' + error.message);
     } finally {
@@ -1258,24 +1307,51 @@ export const Dashboard: React.FC = () => {
 
       <div className="space-y-8">
         {/* Statistics */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>{t('dash_totalBots', 'Jami Botlar')}</CardDescription>
-              <CardTitle className="text-2xl">{bots.length}</CardTitle>
-            </CardHeader>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <Card className="border-border/80 bg-zinc-900/70 hover:border-zinc-700 transition-colors">
+            <div className="flex flex-row items-center justify-between pb-2 p-4 sm:p-5">
+              <div>
+                <span className="text-xs font-medium text-zinc-400 block">{t('dash_totalBots', 'Jami Botlar')}</span>
+                <div className="text-2xl sm:text-3xl font-bold text-white tracking-tight mt-1">{bots.length}</div>
+                <p className="text-[11px] text-zinc-500 mt-1">Maksimal limit: {maxBotsAllowed} ta bot</p>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-zinc-800 border border-zinc-700/60 flex items-center justify-center text-zinc-300 shrink-0">
+                <BotIcon className="w-5 h-5" />
+              </div>
+            </div>
           </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>{t('dash_running', 'Ishlayotgan')}</CardDescription>
-              <CardTitle className="text-2xl text-primary">{bots.filter(b => b.status === 'running').length}</CardTitle>
-            </CardHeader>
+
+          <Card className="border-border/80 bg-zinc-900/70 hover:border-emerald-500/40 transition-colors">
+            <div className="flex flex-row items-center justify-between pb-2 p-4 sm:p-5">
+              <div>
+                <span className="text-xs font-medium text-emerald-400/90 block">{t('dash_running', 'Faol Botlar')}</span>
+                <div className="text-2xl sm:text-3xl font-bold text-emerald-400 tracking-tight mt-1 flex items-center gap-2">
+                  <span>{bots.filter(b => b.status === 'running').length}</span>
+                  {bots.filter(b => b.status === 'running').length > 0 && (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                      Online
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-zinc-500 mt-1">Uzluksiz serverda ishlamoqda</p>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                <Activity className="w-5 h-5" />
+              </div>
+            </div>
           </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>{t('dash_stopped', "To'xtatilgan")}</CardDescription>
-              <CardTitle className="text-2xl">{bots.filter(b => b.status === 'stopped').length}</CardTitle>
-            </CardHeader>
+
+          <Card className="border-border/80 bg-zinc-900/70 hover:border-zinc-700 transition-colors">
+            <div className="flex flex-row items-center justify-between pb-2 p-4 sm:p-5">
+              <div>
+                <span className="text-xs font-medium text-zinc-400 block">{t('dash_stopped', "To'xtatilgan")}</span>
+                <div className="text-2xl sm:text-3xl font-bold text-zinc-300 tracking-tight mt-1">{bots.filter(b => b.status === 'stopped').length}</div>
+                <p className="text-[11px] text-zinc-500 mt-1">Istalgan payt yoqish mumkin</p>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-zinc-800 border border-zinc-700/60 flex items-center justify-center text-zinc-400 shrink-0">
+                <Square className="w-4 h-4" />
+              </div>
+            </div>
           </Card>
         </div>
 

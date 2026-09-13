@@ -971,10 +971,10 @@ export const Messages: React.FC = () => {
   }, [messagesList, user, isAdmin]);
 
   return (
-    <div className="w-full h-full flex flex-col md:flex-row bg-[#08090f] text-slate-100 overflow-hidden relative font-sans">
+    <div className="w-full h-full flex flex-col md:flex-row bg-[#08090f] bg-zinc-950 text-slate-100 overflow-hidden relative font-sans">
       
       {/* CloudBot Left Sidebar - Chat List */}
-      <div className={`w-full md:w-[360px] lg:w-[400px] bg-[#0c0d15]/95 backdrop-blur-xl border-r border-white/[0.08] flex flex-col h-full z-10 ${
+      <div className={`w-full md:w-[360px] lg:w-[400px] bg-[#0c0d15] bg-zinc-950/95 backdrop-blur-xl border-r border-white/[0.08] flex flex-col h-full z-10 ${
         mobileView === 'chat' ? 'hidden md:flex' : 'flex'
       }`}>
         

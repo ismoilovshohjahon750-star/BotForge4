@@ -244,6 +244,16 @@ function createOrRepairDatabase(dbPath: string) {
             message TEXT,
             timestamp TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS user_feedbacks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            userId TEXT,
+            userEmail TEXT,
+            userName TEXT,
+            rating INTEGER,
+            comment TEXT,
+            createdAt TEXT
+        );
       `);
 
       try {
@@ -3369,6 +3379,84 @@ async function startServer() {
     } catch (err: any) {
       console.error("Contact Form Error:", err);
       res.status(500).json({ error: "Xabarni yuborishda xatolik yuz berdi" });
+    }
+  });
+
+  // User Feedback Submission ("Fikringizni qoldiring" - Yulduzchalar va batafsil fikr)
+  app.post("/api/feedback", async (req, res) => {
+    try {
+      const { rating, comment, userId, userEmail, userName } = req.body || {};
+      const numRating = Math.max(1, Math.min(5, Number(rating) || 5));
+      const textComment = typeof comment === 'string' ? comment.trim() : '';
+      const senderName = userName?.trim() || "Foydalanuvchi";
+      const senderEmail = userEmail?.trim() || "Kiritilmagan";
+      const senderId = userId?.trim() || "anonymous";
+      const timestamp = new Date().toISOString();
+
+      console.log(`[USER FEEDBACK]: ${numRating} ⭐ from ${senderName} (${senderEmail}): "${textComment}"`);
+
+      // 1. Save to SQLite
+      if (db) {
+        try {
+          const stmt = db.prepare(`
+            INSERT INTO user_feedbacks (userId, userEmail, userName, rating, comment, createdAt)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `);
+          stmt.run(senderId, senderEmail, senderName, numRating, textComment, timestamp);
+        } catch (dbErr) {
+          console.error("SQLite user_feedbacks error:", dbErr);
+        }
+      }
+
+      // 2. Save to Firestore (user_feedbacks and admin notifications)
+      if (adminDb && !isFirestoreQuotaExhausted()) {
+        try {
+          await adminDb.collection("user_feedbacks").add({
+            userId: senderId,
+            userEmail: senderEmail,
+            userName: senderName,
+            rating: numRating,
+            comment: textComment,
+            createdAt: timestamp
+          });
+
+          // Create notification for Admin
+          const starsText = "⭐".repeat(numRating);
+          await adminDb.collection("notifications").add({
+            userId: 'admin',
+            userEmail: senderEmail,
+            title: `Yangi fikr-mulohaza (${numRating}/5 ${starsText})`,
+            message: `${senderName} (${senderEmail}): "${textComment || 'Izohsiz baholandi'}"`,
+            type: "feedback",
+            senderEmail: senderEmail,
+            createdAt: timestamp,
+            read: false
+          });
+        } catch (fErr) {
+          handleFirestoreError(fErr, "user_feedbacks/notifications");
+        }
+      }
+
+      res.json({
+        success: true,
+        message: "Fikringiz uchun katta rahmat!"
+      });
+    } catch (err: any) {
+      console.error("Feedback submit error:", err);
+      res.status(500).json({ error: "Fikrni yuborishda xatolik yuz berdi" });
+    }
+  });
+
+  // Get recent feedbacks
+  app.get("/api/feedback", (req, res) => {
+    try {
+      if (db) {
+        const list = db.prepare("SELECT * FROM user_feedbacks ORDER BY id DESC LIMIT 50").all();
+        return res.json({ success: true, feedbacks: list });
+      }
+      return res.json({ success: true, feedbacks: [] });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
     }
   });
 

@@ -8,6 +8,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'r
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { CallProvider } from './context/CallContext';
 import { LanguageProvider } from './context/LanguageContext';
+import { FeedbackProvider } from './context/FeedbackContext';
+import { FeedbackModal } from './components/FeedbackModal';
 import { Navbar } from './components/Navbar';
 import { Landing } from './pages/Landing';
 import { Dashboard } from './pages/Dashboard';
@@ -55,6 +57,7 @@ function AppLayout() {
         </Routes>
       </main>
       {!isMessagesPage && <Footer />}
+      <FeedbackModal />
       <Toaster position="top-right" duration={3500} richColors />
     </div>
   );
@@ -64,11 +67,13 @@ export default function App() {
   return (
     <AuthProvider>
       <LanguageProvider>
-        <CallProvider>
-          <Router>
-            <AppLayout />
-          </Router>
-        </CallProvider>
+        <FeedbackProvider>
+          <CallProvider>
+            <Router>
+              <AppLayout />
+            </Router>
+          </CallProvider>
+        </FeedbackProvider>
       </LanguageProvider>
     </AuthProvider>
   );
