@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Star } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useFeedback } from '../context/FeedbackContext';
@@ -85,19 +85,49 @@ const ReviewAvatar: React.FC<{ name: string; email?: string; gradient: string }>
   );
 };
 
+let cachedFeedbacks: FeedbackItem[] | null = null;
+let lastFetchTimestamp = 0;
+const CACHE_TTL_MS = 60000; // 1 minute cache
+
 export const CustomerReviews: React.FC = () => {
   const { feedbackUpdateTrigger } = useFeedback();
-  const [reviews, setReviews] = useState<FeedbackItem[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [reviews, setReviews] = useState<FeedbackItem[]>(() => cachedFeedbacks || []);
+  const [loading, setLoading] = useState<boolean>(!cachedFeedbacks);
+  const isFetchingRef = useRef(false);
 
   // Fetch only real user feedback from API
-  const fetchFeedbacks = async () => {
+  const fetchFeedbacks = async (force: boolean = false) => {
+    const now = Date.now();
+    if (!force && cachedFeedbacks && (now - lastFetchTimestamp < CACHE_TTL_MS)) {
+      setReviews(cachedFeedbacks);
+      setLoading(false);
+      return;
+    }
+
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
+
     try {
-      setLoading(true);
+      if (!cachedFeedbacks) setLoading(true);
       const res = await fetch('/api/feedback');
+
+      if (!res.ok) {
+        // Handle rate limit (429) or server busy gracefully
+        if (res.status === 429) {
+          console.warn('Feedback fetch rate-limited, using cached or empty state.');
+        }
+        if (cachedFeedbacks) setReviews(cachedFeedbacks);
+        return;
+      }
+
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        return;
+      }
+
       const data = await res.json();
 
-      if (data.success && Array.isArray(data.feedbacks) && data.feedbacks.length > 0) {
+      if (data && data.success && Array.isArray(data.feedbacks) && data.feedbacks.length > 0) {
         const realFeedbacks: FeedbackItem[] = data.feedbacks
           .map((f: any) => ({
             id: `db-${f.id}`,
@@ -110,20 +140,26 @@ export const CustomerReviews: React.FC = () => {
           }))
           .filter((f: FeedbackItem) => f.comment && f.comment.trim().length > 0);
 
+        cachedFeedbacks = realFeedbacks;
+        lastFetchTimestamp = Date.now();
         setReviews(realFeedbacks);
       } else {
-        setReviews([]);
+        if (!cachedFeedbacks) setReviews([]);
       }
-    } catch (err) {
-      console.error('Failed to fetch customer feedbacks:', err);
-      setReviews([]);
+    } catch (err: any) {
+      // Don't crash or throw on network or parse issues
+      if (cachedFeedbacks) {
+        setReviews(cachedFeedbacks);
+      }
     } finally {
       setLoading(false);
+      isFetchingRef.current = false;
     }
   };
 
   useEffect(() => {
-    fetchFeedbacks();
+    // If feedbackUpdateTrigger changed and > 0, force refresh
+    fetchFeedbacks(feedbackUpdateTrigger > 0);
   }, [feedbackUpdateTrigger]);
 
   // If there are no real reviews yet, do not display the section

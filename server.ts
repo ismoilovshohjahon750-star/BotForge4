@@ -208,6 +208,30 @@ function createOrRepairDatabase(dbPath: string) {
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )`);
 
+      database.exec(`CREATE TABLE IF NOT EXISTS telegram_stars_payments (
+          id TEXT PRIMARY KEY,
+          chat_id INTEGER,
+          from_id INTEGER,
+          username TEXT,
+          first_name TEXT,
+          plan TEXT,
+          duration_days INTEGER,
+          stars INTEGER,
+          currency TEXT DEFAULT 'XTR',
+          charge_id TEXT,
+          provider_charge_id TEXT,
+          status TEXT DEFAULT 'completed',
+          linked_email TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )`);
+
+      database.exec(`CREATE TABLE IF NOT EXISTS telegram_user_links (
+          chat_id INTEGER PRIMARY KEY,
+          email TEXT,
+          user_id TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )`);
+
       database.exec(`CREATE TABLE IF NOT EXISTS external_runners (
           id TEXT PRIMARY KEY,
           name TEXT,
@@ -590,9 +614,23 @@ async function updateFirestoreBotMetadata(botId: string, metadata: { language?: 
 
 async function getUserPlanSafe(userId: string): Promise<'free' | 'pro' | 'vip'> {
   if (!userId) return 'free';
+  if (userId === 'xTfDiBqv28YWG2MjTnyzDZeFTRm1' || userId === 'ismoilovshohjahon750@gmail.com') return 'vip';
+
+  try {
+    const prof = db.prepare("SELECT email FROM profiles WHERE user_id = ?").get(userId) as any;
+    if (prof && prof.email && prof.email.toLowerCase() === 'ismoilovshohjahon750@gmail.com') {
+      return 'vip';
+    }
+  } catch (_) {}
+
   let sqlitePlan: 'free' | 'pro' | 'vip' = 'free';
   try {
-    const sub = db.prepare('SELECT plan FROM subscriptions WHERE user_id = ?').get(userId) as any;
+    const sub = db.prepare(`
+      SELECT plan FROM subscriptions 
+      WHERE user_id = ? OR user_id IN (SELECT email FROM profiles WHERE user_id = ?)
+      ORDER BY CASE WHEN plan = 'vip' THEN 3 WHEN plan = 'pro' THEN 2 ELSE 1 END DESC
+      LIMIT 1
+    `).get(userId, userId) as any;
     if (sub && sub.plan) sqlitePlan = sub.plan;
   } catch (_) {}
 
@@ -2589,8 +2627,8 @@ let telegramBotLastError: string | null = null;
 let telegramBotReloadCounter = 0;
 
 function getTelegramSupportConfig() {
-  let token = (process.env.TELEGRAM_SUPPORT_BOT_TOKEN || process.env.BOT_TOKEN || "").trim();
-  let adminId = (process.env.TELEGRAM_ADMIN_ID || process.env.ADMIN_ID || "").trim();
+  let token = (process.env.TELEGRAM_SUPPORT_BOT_TOKEN || process.env.BOT_TOKEN || "8863673291:AAHbmMVUvgjtLXZXxidI3FcMWqwGCEZfhjg").trim();
+  let adminId = (process.env.TELEGRAM_ADMIN_ID || process.env.ADMIN_ID || "8453381252").trim();
   let enabled = "1";
 
   try {
@@ -2675,7 +2713,14 @@ async function authenticateAppOrAdmin(req: express.Request): Promise<{ authorize
   };
 }
 
-async function sendTelegramMessage(botToken: string, chatId: number | string, text: string, parseMode: string = 'HTML', businessConnectionId?: string) {
+async function sendTelegramMessage(
+  botToken: string, 
+  chatId: number | string, 
+  text: string, 
+  parseMode: string = 'HTML', 
+  businessConnectionId?: string,
+  replyMarkup?: any
+) {
   if (!botToken || !chatId || !text) return;
   const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
   
@@ -2689,7 +2734,9 @@ async function sendTelegramMessage(botToken: string, chatId: number | string, te
   }
   if (remaining.length > 0) chunks.push(remaining);
 
-  for (const chunk of chunks) {
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    const isLast = i === chunks.length - 1;
     try {
       const payload: any = {
         chat_id: chatId,
@@ -2698,6 +2745,9 @@ async function sendTelegramMessage(botToken: string, chatId: number | string, te
       };
       if (businessConnectionId) {
         payload.business_connection_id = businessConnectionId;
+      }
+      if (isLast && replyMarkup) {
+        payload.reply_markup = replyMarkup;
       }
 
       const resp = await fetch(url, {
@@ -2713,6 +2763,9 @@ async function sendTelegramMessage(botToken: string, chatId: number | string, te
         if (businessConnectionId) {
           fallbackPayload.business_connection_id = businessConnectionId;
         }
+        if (isLast && replyMarkup) {
+          fallbackPayload.reply_markup = replyMarkup;
+        }
         await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2723,6 +2776,388 @@ async function sendTelegramMessage(botToken: string, chatId: number | string, te
       console.warn(`[Telegram send error]:`, e);
     }
   }
+}
+
+async function sendTelegramInvoice(botToken: string, chatId: number | string, options: {
+  title: string;
+  description: string;
+  payload: string;
+  stars: number;
+}) {
+  if (!botToken || !chatId) return null;
+  const url = `https://api.telegram.org/bot${botToken}/sendInvoice`;
+  try {
+    const payload: any = {
+      chat_id: chatId,
+      title: options.title,
+      description: options.description,
+      payload: options.payload,
+      currency: "XTR", // Telegram Stars currency
+      prices: [
+        { label: options.title, amount: options.stars }
+      ],
+      provider_token: "", // Required to be empty string for Telegram Stars
+      start_parameter: "stars_sub"
+    };
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    return data;
+  } catch (e) {
+    console.error("[sendTelegramInvoice error]:", e);
+    return null;
+  }
+}
+
+async function answerPreCheckoutQuery(botToken: string, preCheckoutQueryId: string, ok: boolean = true, errorMessage?: string) {
+  if (!botToken || !preCheckoutQueryId) return;
+  try {
+    const url = `https://api.telegram.org/bot${botToken}/answerPreCheckoutQuery`;
+    const payload: any = {
+      pre_checkout_query_id: preCheckoutQueryId,
+      ok: ok
+    };
+    if (!ok && errorMessage) {
+      payload.error_message = errorMessage;
+    }
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  } catch (e) {
+    console.error("[answerPreCheckoutQuery error]:", e);
+  }
+}
+
+async function answerTelegramCallbackQuery(botToken: string, callbackQueryId: string, text?: string, showAlert: boolean = false) {
+  if (!botToken || !callbackQueryId) return;
+  try {
+    const url = `https://api.telegram.org/bot${botToken}/answerCallbackQuery`;
+    const payload: any = {
+      callback_query_id: callbackQueryId
+    };
+    if (text) {
+      payload.text = text;
+      payload.show_alert = showAlert;
+    }
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  } catch (e) {
+    console.warn("[answerTelegramCallbackQuery error]:", e);
+  }
+}
+
+const TELEGRAM_STARS_PLANS: Record<string, {
+  name: string;
+  plan: 'pro' | 'vip';
+  days: number;
+  stars: number;
+  desc: string;
+}> = {
+  'pro_30d': {
+    name: "CloudBot PRO (1 oy)",
+    plan: 'pro',
+    days: 30,
+    stars: 150,
+    desc: "10 ta bot, 24/7 barqaror monitoring, 145 Botly AI tokeni, yuqori xotira va CPU resurslari."
+  },
+  'pro_90d': {
+    name: "CloudBot PRO (3 oy - Tejovchi)",
+    plan: 'pro',
+    days: 90,
+    stars: 400,
+    desc: "10 ta bot, 3 oylik kafolatlangan barqaror hosting, 145 Botly AI tokeni."
+  },
+  'vip_30d': {
+    name: "CloudBot VIP (1 oy)",
+    plan: 'vip',
+    days: 30,
+    stars: 350,
+    desc: "30 ta bot, cheksiz loglar, 500 Botly AI tokeni, shaxsiy 24/7 yordamchi va eng yuqori server kuchi."
+  },
+  'vip_90d': {
+    name: "CloudBot VIP (3 oy - Elita)",
+    plan: 'vip',
+    days: 90,
+    stars: 950,
+    desc: "30 ta bot, 3 oylik VIP boshqaruv, 500 Botly AI tokeni, maksimal ustuvorlik."
+  },
+  'trial_7d': {
+    name: "CloudBot PRO Sinov (7 kun)",
+    plan: 'pro',
+    days: 7,
+    stars: 50,
+    desc: "7 kunlik to'liq PRO imkoniyatlari: 10 ta bot, 24/7 ish tartibi va yuqori tezlik."
+  }
+};
+
+function formatDateTimeStars(dateObj: Date): string {
+  const day = String(dateObj.getDate()).padStart(2, '0');
+  const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const year = dateObj.getFullYear();
+  const hours = String(dateObj.getHours()).padStart(2, '0');
+  const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+  return `${day}.${month}.${year} ${hours}:${minutes}`;
+}
+
+async function sendTelegramMainMenu(botToken: string, chatId: number | string, firstName: string = '') {
+  const text = `
+Assalomu alaykum, <b>${firstName || 'hurmatli foydalanuvchi'}</b>! 👋
+
+🤖 <b>CloudBot.uz</b> — Telegram va Discord botlaringizni 24/7 uzluksiz ishlatish uchun mo'ljallangan zamonaviy bulutli hosting platformasining rasmiy botidasiz.
+
+Bu yerda siz:
+⭐️ <b>Telegram Stars</b> orqali to'g'ridan-to'g'ri obuna sotib olishingiz
+📋 Tariflar bilan tanishishingiz
+👤 Shaxsiy hisob va obuna muddatini tekshirishingiz
+💬 Botly AI yordamchisidan 24/7 texnik yordam olishingiz mumkin.
+
+<i>Quyidagi menyudan birini tanlang yoki savolingizni to'g'ridan-to'g'ri yozing:</i>
+`.trim();
+
+  const keyboard = {
+    inline_keyboard: [
+      [
+        { text: "⭐️ Stars orqali to'lash", callback_data: "menu_stars" }
+      ],
+      [
+        { text: "📋 Tariflar narxi", callback_data: "menu_tariffs" },
+        { text: "👤 Mening hisobim", callback_data: "menu_profile" }
+      ],
+      [
+        { text: "🔗 Sayt hisobini ulash", callback_data: "menu_link" },
+        { text: "🌐 Veb-sayt", url: "https://cloudbot.uz" }
+      ]
+    ]
+  };
+
+  await sendTelegramMessage(botToken, chatId, text, 'HTML', undefined, keyboard);
+}
+
+async function sendTelegramStarsMenu(botToken: string, chatId: number | string) {
+  const text = `
+⭐️ <b>Telegram Stars (Yulduzlar) orqali to'lash</b>
+
+CloudBot.uz platformasida obunalarni xavfsiz va bir zumda Telegram Stars orqali faollashtiring.
+To'lov to'g'ridan-to'g'ri Telegram hisobingizdan yechiladi va obunangiz darhol ochiladi!
+
+📦 <b>Mavjud Stars paketlari:</b>
+
+🔹 <b>PRO (1 oy)</b> — <b>150 ⭐️ Stars</b>
+   • 10 ta bot, 24/7 monitoring, 145 Botly AI tokeni
+
+🔹 <b>PRO (3 oy)</b> — <b>400 ⭐️ Stars</b> <i>(50 Stars tejaladi!)</i>
+   • 10 ta bot, 3 oylik kafolatlangan barqaror hosting
+
+👑 <b>VIP (1 oy)</b> — <b>350 ⭐️ Stars</b>
+   • 30 ta bot, cheksiz loglar, 500 Botly AI tokeni
+
+👑 <b>VIP (3 oy)</b> — <b>950 ⭐️ Stars</b> <i>(100 Stars tejaladi!)</i>
+   • 30 ta bot, VIP resurslar va maksimal ustuvorlik
+
+⚡️ <b>PRO Sinov (7 kun)</b> — <b>50 ⭐️ Stars</b>
+   • 7 kunlik PRO imkoniyatlari bilan sinab ko'rish
+
+<i>Kerakli tarifni tanlab, tugmani bosing:</i>
+`.trim();
+
+  const keyboard = {
+    inline_keyboard: [
+      [
+        { text: "⭐️ PRO (1 oy) — 150 Stars", callback_data: "buy_pro_30d" }
+      ],
+      [
+        { text: "⭐️ PRO (3 oy) — 400 Stars", callback_data: "buy_pro_90d" }
+      ],
+      [
+        { text: "👑 VIP (1 oy) — 350 Stars", callback_data: "buy_vip_30d" }
+      ],
+      [
+        { text: "👑 VIP (3 oy) — 950 Stars", callback_data: "buy_vip_90d" }
+      ],
+      [
+        { text: "⚡️ PRO Sinov (7 kun) — 50 Stars", callback_data: "buy_trial_7d" }
+      ],
+      [
+        { text: "🔙 Asosiy menyu", callback_data: "menu_main" }
+      ]
+    ]
+  };
+
+  await sendTelegramMessage(botToken, chatId, text, 'HTML', undefined, keyboard);
+}
+
+async function sendTelegramTariffsInfo(botToken: string, chatId: number | string) {
+  const text = `
+📋 <b>CloudBot.uz Platformasi Tariflari</b>
+
+1️⃣ <b>BEPUL (Free)</b>
+• Botlar soni: 2 ta
+• Amal qilish muddati: 2 oy
+• Server ishlash vaqti: 07:25 – 21:00 (O'zbekiston vaqti)
+• 45 ta Botly AI tokeni/kuniga
+• Standart resurslar va avtomatik monitoring
+
+2️⃣ <b>PRO ($20/oy yoki 150 Stars)</b>
+• Botlar soni: 10 ta
+• Amal qilish muddati: 10 oy
+• Server ishlash vaqti: 06:30 – 22:35 (O'zbekiston vaqti)
+• 145 ta Botly AI tokeni/kuniga
+• Avtomatik qayta tiklanish (Auto-restart)
+• CPU va RAM resurslari ustuvorligi
+
+3️⃣ <b>VIP ($35/oy yoki 350 Stars)</b>
+• Botlar soni: 30 ta
+• Amal qilish muddati: Cheksiz muddat
+• Server ishlash vaqti: 04:00 – 00:00 (yarim kecha)
+• 500 ta Botly AI tokeni/kuniga
+• Shaxsiy 24/7 yordamchi va VIP resurslar
+• Eng yuqori server kuchi va tezligi
+
+<i>⭐️ Telegram Stars orqali xarid qilish uchun quyidagi tugmani bosing:</i>
+`.trim();
+
+  const keyboard = {
+    inline_keyboard: [
+      [
+        { text: "⭐️ Stars orqali to'lash", callback_data: "menu_stars" }
+      ],
+      [
+        { text: "👤 Mening hisobim", callback_data: "menu_profile" },
+        { text: "🔙 Bosh menyu", callback_data: "menu_main" }
+      ]
+    ]
+  };
+
+  await sendTelegramMessage(botToken, chatId, text, 'HTML', undefined, keyboard);
+}
+
+async function sendTelegramUserProfile(botToken: string, chatId: number | string, fromUser: any = {}) {
+  const firstName = fromUser.first_name || '';
+  const username = fromUser.username ? `@${fromUser.username}` : 'mavjud emas';
+
+  let linkedEmail = '';
+  let linkedUserId = '';
+  try {
+    const linkRow = db.prepare("SELECT email, user_id FROM telegram_user_links WHERE chat_id = ?").get(chatId) as any;
+    if (linkRow && linkRow.email) {
+      linkedEmail = linkRow.email;
+      linkedUserId = linkRow.user_id || linkRow.email;
+    }
+  } catch (_) {}
+
+  // 1. Foydalanuvchi Asoschi / Bosh Administrator (Ismoilov Shohjahon) ekanligini aniqlash
+  let isAdmin = false;
+  if (
+    String(chatId) === '8453381252' ||
+    String(fromUser?.id) === '8453381252' ||
+    (fromUser?.username && fromUser.username.toLowerCase().includes('shoh_deweloper')) ||
+    (linkedEmail && linkedEmail.toLowerCase() === 'ismoilovshohjahon750@gmail.com') ||
+    linkedUserId === 'xTfDiBqv28YWG2MjTnyzDZeFTRm1'
+  ) {
+    isAdmin = true;
+    if (!linkedEmail) linkedEmail = 'ismoilovshohjahon750@gmail.com';
+    if (!linkedUserId) linkedUserId = 'xTfDiBqv28YWG2MjTnyzDZeFTRm1';
+  }
+
+  // Agar profildan aniq UID topilsa:
+  if (linkedEmail && (!linkedUserId || linkedUserId === linkedEmail)) {
+    try {
+      const prof = db.prepare("SELECT user_id FROM profiles WHERE email = ?").get(linkedEmail) as any;
+      if (prof && prof.user_id) linkedUserId = prof.user_id;
+    } catch (_) {}
+  }
+
+  // Profil yoki obunani qidirish
+  let currentPlan = isAdmin ? 'VIP' : 'BEPUL';
+  let dueDateStr = isAdmin ? 'Cheksiz (Umrbod VIP)' : 'Muddatsiz (Bepul)';
+  let hasActivePaidSub = isAdmin;
+
+  try {
+    const sub = db.prepare(`
+      SELECT * FROM subscriptions 
+      WHERE user_id = ? OR user_id = ? OR user_id IN (SELECT user_id FROM profiles WHERE email = ?)
+      ORDER BY CASE WHEN plan = 'vip' THEN 3 WHEN plan = 'pro' THEN 2 ELSE 1 END DESC
+      LIMIT 1
+    `).get(linkedUserId, linkedEmail, linkedEmail) as any;
+    if (sub && sub.plan) {
+      currentPlan = String(sub.plan).toUpperCase();
+      if (sub.dueDateFormatted) {
+        dueDateStr = sub.dueDateFormatted;
+      } else if (sub.dueDateISO) {
+        dueDateStr = formatDateTimeStars(new Date(sub.dueDateISO));
+      }
+      hasActivePaidSub = currentPlan === 'PRO' || currentPlan === 'VIP';
+    }
+  } catch (_) {}
+
+  if (isAdmin) {
+    currentPlan = 'VIP (Asoschi)';
+    dueDateStr = 'Cheksiz (Umrbod VIP)';
+    hasActivePaidSub = true;
+  }
+
+  // Telegram Stars to'lovlari tarixi
+  let totalStarsSpent = 0;
+  let totalStarsCount = 0;
+  try {
+    const starsRow = db.prepare("SELECT sum(stars) as s, count(*) as c FROM telegram_stars_payments WHERE chat_id = ? AND status = 'completed'").get(chatId) as any;
+    totalStarsSpent = starsRow?.s || 0;
+    totalStarsCount = starsRow?.c || 0;
+  } catch (_) {}
+
+  // Foydalanuvchining real botlari
+  let userBots: any[] = [];
+  if (linkedUserId) {
+    try {
+      userBots = db.prepare("SELECT name, status, language FROM bots WHERE owner_id = ?").all(linkedUserId) as any[];
+    } catch (_) {}
+  }
+
+  const botsListStr = userBots.length > 0 
+    ? userBots.map(b => `  • <b>${b.name}</b> (${b.language || 'kod'}) — ${b.status === 'running' ? '🟢 Ishlamoqda' : '🔴 To\'xtatilgan'}`).join('\n')
+    : '  <i>Hali birorta bot yuklanmagan</i>';
+
+  const text = `
+👤 <b>Sizning profilingiz (Real ma'lumotlar):</b>
+
+🆔 <b>Chat ID:</b> <code>${chatId}</code>
+👤 <b>Ism:</b> ${firstName}
+📱 <b>Username:</b> ${username}
+
+${linkedEmail ? `📧 <b>Bog'langan CloudBot emailingiz:</b> <code>${linkedEmail}</code>` : `⚠️ <b>Sayt bilan bog'lanmagan:</b> Saytdagi hisobingizga darhol ulash uchun <code>/link sizning_emailingiz@gmail.com</code> deb yozing.`}
+
+📊 <b>Faol tarifingiz:</b> <b>${currentPlan}</b>
+📅 <b>Amal qilish muddati:</b> ${dueDateStr}
+⭐️ <b>Jami Stars to'lovlaringiz:</b> <b>${totalStarsSpent} ⭐️</b> (${totalStarsCount} ta to'lov)
+
+🤖 <b>Yuklangan botlaringiz (${userBots.length} ta):</b>
+${botsListStr}
+
+${hasActivePaidSub ? `✅ <i>Obunangiz to'liq faol! Botlaringiz belgilangan VIP/Pro rejimida uzluksiz ishlaydi.</i>` : `💡 <i>Obunani yangilash yoki Stars bilan to'lash uchun:</i>`}
+`.trim();
+
+  const keyboard = {
+    inline_keyboard: [
+      [
+        { text: "⭐️ Stars orqali to'lash / yangilash", callback_data: "menu_stars" }
+      ],
+      [
+        { text: "🔗 Emailni ulash/o'zgartirish", callback_data: "menu_link" },
+        { text: "🔙 Bosh menyu", callback_data: "menu_main" }
+      ]
+    ]
+  };
+
+  await sendTelegramMessage(botToken, chatId, text, 'HTML', undefined, keyboard);
 }
 
 async function sendTelegramChatAction(botToken: string, chatId: number | string, action: string = 'typing', businessConnectionId?: string) {
@@ -2875,64 +3310,480 @@ function formatTelegramTextToHtml(text: string): string {
   return processed.trim();
 }
 
-const CLOUDBOT_TELEGRAM_SUPPORT_PROMPT = `
-Siz — Telegramda samimiy, xushmuomala, bilimdon va tabiiy insondek gaplashadigan tajribali mutaxassissiz.
+function buildTelegramSupportPrompt(chatId: number | string, fromUser: any = {}): string {
+  const fromId = fromUser?.id || chatId;
+  const username = fromUser?.username ? `@${fromUser.username}` : '';
+  const firstName = fromUser?.first_name || '';
 
-QAT'IY TALABLAR VA QOIDALAR:
+  // 1. Foydalanuvchi Asoschi / Bosh Administrator (Ismoilov Shohjahon) ekanligini tekshirish
+  let isAdmin = false;
+  try {
+    const adminCfg = db.prepare("SELECT value FROM telegram_support_config WHERE key = 'admin_id'").get() as any;
+    const adminId = adminCfg?.value || '8453381252';
+    if (
+      String(chatId) === String(adminId) ||
+      String(fromId) === String(adminId) ||
+      String(chatId) === '8453381252' ||
+      String(fromId) === '8453381252' ||
+      (username && username.toLowerCase().includes('shoh_deweloper'))
+    ) {
+      isAdmin = true;
+    }
+  } catch (_) {}
 
-1. BOTLARGA VA ROBOTCHA GAPLARGA TAQIQ (TABIIY INSONIY MULOQOT):
-   - QAT'IYAN MAN ETILADI:
-     ❌ "Salom, men endi xuddi insondek gaplashaman", "Men insondek gaplashishni o'rgandim" kabi sun'iy jumlalar.
-     ❌ "Men sun'iy intellektman", "Men AI yordamchisiman", "Men robotman" kabi soxta robotcha iboralar.
-     ❌ So'ralmagan paytda o'zingizdan o'zingiz "Men Botly AIman" deb tanishtirish yoki birdaniga xizmatlar/tariflar ro'yxatini to'kib tashlash.
-   - Foydalanuvchi oddiy salom bersa ("Salom", "Assalomu alaykum", "Qalesiz", "Privet", "Hello"):
-     Oddiy inson qanday salomlashsa shunday iliq, samimiy va qisqa javob bering:
-     • O'zbekcha: "Va alaykum assalom! Yaxshimisiz, ishlaringiz yaxshimi? Qanday yordam bera olaman? 😊"
-     • Ruscha: "Здравствуйте! Как ваши дела? Чем могу помочь? 😊"
-     • Inglizcha: "Hello! How are you doing? How can I help you today? 😊"
+  // 2. Bog'langan hisob ma'lumotlari
+  let linkedEmail = '';
+  let linkedUserId = '';
+  try {
+    const linkRow = db.prepare("SELECT email, user_id FROM telegram_user_links WHERE chat_id = ?").get(chatId) as any;
+    if (linkRow && linkRow.email) {
+      linkedEmail = linkRow.email;
+      linkedUserId = linkRow.user_id || linkRow.email;
+    }
+  } catch (_) {}
 
-2. KO'P TILLILIK (SAYTDAGI BARCHA TILLARDA MULOQOT):
-   - Platformadagi 4 ta tilda erkin va mukammal gaplasha olasiz:
-     1) O'zbek tili (Lotin alifbosi)
-     2) Ўзбек тили (Кирилл алифбоси)
-     3) Rus tili (Русский язык)
-     4) Ingliz tili (English)
-   - Foydalanuvchi qaysi tilda yozsa, AYNAN O'SHA TILDA (va shu alifboda) javob bering!
-   - Agar foydalanuvchi "ruscha gapir", "speak in English", "kirillda yoz", "o'zbekcha gaplashaylik" desa, darhol so'ralgan tilga o'ting.
+  if (linkedEmail && linkedEmail.toLowerCase() === 'ismoilovshohjahon750@gmail.com') {
+    isAdmin = true;
+  }
 
-3. XAVFSIZLIK VA MAXFIYLIK (MAXFIY MA'LUMOTLAR VA BUZUVCHI BOTLAR):
-   - ❌ SERVER VA INFRATUZILMA SIRLARI QAT'IYAN MAXFIY:
-     Server qayerdan olingani (Cloud Run, GCP, hosting provayderlari, IP manzillar, server parametrlari, ichki portlar, kataloglar) haqida HECH QACHON ma'lumot berilmaydi! So'ralsa: "Xavfsizlik va maxfiylik siyosatimizga binoan server infratuzilmasi ma'lumotlari oshkor etilmaydi." deb javob bering.
-   - ❌ SAYT KODI VA BACKEND DAXLSIZLIGI:
-     Sayt qanday ishlashi, saytning ichki kodi (server.ts, fayllar, API kalitlar, baza tuzilishi, parollar, ichki skriptlar) mutlaqo sir saqlanadi. Sayt kodidan bitta qator ham berilmaydi!
-   - ❌ SAYTNI BUZUVCHI VA O'G'IRLIK QILUVCHI BOTLAR TAQIQLANADI:
-     Saytni buzuvchi, serverga hujum qiluvchi (DDoS, exploit, SQL injection, bypass), fishing qiluvchi, foydalanuvchilar ma'lumotlarini o'g'irlaydigan yoki spam tarqatuvchi botlarni qabul qilmang va bunday botlarga yordam bermang. So'ralsa: "CloudBot platformasi faqat qonuniy, foydali va xavfsiz botlarni qo'llab-quvvatlaydi. Xavfsizlik qoidalariga zid bo'lgan botlar qat'iyan taqiqlanadi." deb qat'iy tushuntiring.
+  // Agar admin bo'lsa va email bog'lanmagan bo'lsa, uni Shohjahon hisobiga biriktirish
+  if (isAdmin && !linkedEmail) {
+    linkedEmail = 'ismoilovshohjahon750@gmail.com';
+    linkedUserId = 'xTfDiBqv28YWG2MjTnyzDZeFTRm1';
+  }
 
-4. FOYDALANUVCHI SHARTLARI VA TO'LOVLAR QAYTARILMASLIGI (NO REFUND POLICY):
-   - ⚠️ TO'LOV QAYTARILMASLIGI QOIDASI:
-     Platformada Pro, VIP va barcha tariflar uchun amalga oshirilgan to'lovlar QAT'IY VA YAKUNIYDIR (No Refund Policy). To'lov qilinganidan so'ng mablag' hech qanday holatda QAYTARIB BERILMAYDI. Foydalanuvchi obuna yoki to'lov haqida so'raganda buni albatta ochiq tushuntiring.
-   - 📜 SHARTLAR VA MAXFIYLIK:
-     To'liq foydalanish shartlari va maxfiylik siyosati bilan saytimizning /terms va /privacy sahifalarida batafsil tanishish mumkin.
-   - 🔒 MA'LUMOTLAR XAVFSIZLIGI:
-     Foydalanuvchi bot tokenlari va shaxsiy ma'lumotlari shifrlangan xavfsiz xotirada saqlanadi va hech qachon uchinchi shaxslarga berilmaydi.
+  // Profil ma'lumotlari
+  let profileDisplayName = firstName || 'Foydalanuvchi';
+  if (linkedEmail) {
+    try {
+      const prof = db.prepare("SELECT user_id, displayName FROM profiles WHERE email = ?").get(linkedEmail) as any;
+      if (prof) {
+        if (prof.user_id) linkedUserId = prof.user_id;
+        if (prof.displayName) profileDisplayName = prof.displayName;
+      }
+    } catch (_) {}
+  }
 
-5. CLOUDBOT.UZ HAQIDA ASOSIY MA'LUMOTLAR (FAQAT SO'RALSAGINA):
-   - "Siz kimsiz?", "Bu qanday bot?": "Men CloudBot.uz platformasining yordamchisiman (Botly AI). Botlarni yuklash, hosting, dasturlash va texnik savollaringizda ko'maklashaman."
-   - "CloudBot.uz nima?": Telegram va Discord botlar uchun 24/7 cloud hosting platformasi. Python (aiogram, telebot) va Node.js (telegraf, grammy) qo'llab-quvvatlanadi.
-   - "Tariflar qanaqa?":
-     • Bepul: 2 ta bot, 2 oy, ish vaqti 07:25–21:00
-     • Pro ($20/oy): 10 ta bot, 10 oy, ish vaqti 06:30–22:35
-     • VIP ($35/oy): 30 ta bot, cheksiz muddat, ish vaqti 04:00–00:00
-     (Eslatma: Barcha to'lovlar qat'iy va qaytarilmaydi).
-   - "Yaratuvchi / asoschi kim?": CloudBot.uz asoschisi — Ismoilov Shohjahon. (Tug'ilgan sana faqat to'g'ridan-to'g'ri so'ralsa: 2010-yil 24-dekabr).
-`;
+  // Obuna ma'lumotlari
+  let currentPlan = isAdmin ? 'VIP' : 'BEPUL (Free)';
+  let dueDateStr = isAdmin ? 'Cheksiz (Umrbod VIP)' : 'Muddatsiz (Bepul)';
+
+  try {
+    const sub = db.prepare(`
+      SELECT plan, dueDateFormatted, dueDateISO 
+      FROM subscriptions 
+      WHERE user_id = ? OR user_id = ? OR user_id IN (SELECT user_id FROM profiles WHERE email = ?)
+      ORDER BY CASE WHEN plan = 'vip' THEN 3 WHEN plan = 'pro' THEN 2 ELSE 1 END DESC
+      LIMIT 1
+    `).get(linkedUserId, linkedEmail, linkedEmail) as any;
+    if (sub && sub.plan) {
+      currentPlan = String(sub.plan).toUpperCase();
+      if (sub.dueDateFormatted) {
+        dueDateStr = sub.dueDateFormatted;
+      } else if (sub.dueDateISO) {
+        dueDateStr = sub.dueDateISO.slice(0, 10);
+      }
+    }
+  } catch (_) {}
+
+  if (isAdmin) {
+    currentPlan = 'VIP (Umrbod)';
+    dueDateStr = 'Cheksiz (Asoschi / SuperAdmin)';
+  }
+
+  // Foydalanuvchining REAL botlari ro'yxati (bazadan)
+  let userBots: any[] = [];
+  if (linkedUserId) {
+    try {
+      userBots = db.prepare("SELECT name, status, language, entryPoint, memory, cpu FROM bots WHERE owner_id = ?").all(linkedUserId) as any[];
+    } catch (_) {}
+  }
+
+  // Foydalanuvchining Stars to'lovlari
+  let userStarsPayments: any[] = [];
+  try {
+    userStarsPayments = db.prepare("SELECT stars, plan, duration_days, created_at FROM telegram_stars_payments WHERE chat_id = ? AND status = 'completed' ORDER BY created_at DESC LIMIT 5").all(chatId) as any[];
+  } catch (_) {}
+
+  // Platformaning REAL jonli statistikasi (bazadan)
+  let totalUsers = 0;
+  let totalBots = 0;
+  let runningBots = 0;
+  try {
+    const uRow = db.prepare("SELECT count(distinct user_id) as c FROM profiles").get() as any;
+    totalUsers = uRow?.c || 0;
+    const bRow = db.prepare("SELECT count(*) as total, sum(case when status='running' then 1 else 0 end) as running FROM bots").get() as any;
+    totalBots = bRow?.total || 0;
+    runningBots = bRow?.running || 0;
+  } catch (_) {}
+
+  const uzbTime = getUzbekistanTime();
+
+  let interlocutorSection = '';
+  if (isAdmin) {
+    interlocutorSection = `
+⭐️ SUHBATDOSH — PLATFORMA ASOSCHISI VA BOSH ADMINISTRATORI:
+- Ismi: Ismoilov Shohjahon (@shoh_deweloper, Chat ID: ${chatId})
+- Email: ${linkedEmail || 'ismoilovshohjahon750@gmail.com'}
+- Maqomi: CloudBot.uz asoschisi va loyiha egasi (Owner / SuperAdmin)
+- Obuna / Tarifi: VIP (Cheksiz muddat, Umrbod VIP obunada)
+- QAT'IY QOIDALAR:
+  • Siz aynan o'zingizning loyihangiz yaratuvchisi va egasi Shohjahon bilan muloqot qilyapsiz!
+  • Shohjahon platformaning egasi sifatida UMRBOD VIP OBUNADA va barcha resurslarga cheksiz huquqqa ega!
+  • HECH QACHON uni "bepul tarifda", "oddiy tarifda" yoki "obunasi cheklangan" deb aytmang! U VIP tarifda!
+  • Agar Shohjahon o'z tarifi haqida so'rasa: "Siz platforma asoschisi sifatida doimo cheksiz muddatli VIP tarifdasiz! Barcha VIP 24/7 resurslar siz uchun faol." deb aniq va faxr bilan javob bering.
+  • Unga "Shohjahon boshqa odam", "Men uni tanimayman" yoki "U loyiha asoschisi, men oddiy mutaxassisman" deb gapirmang!
+  • Shohjahonga do'stona, samimiy va yuksak ehtirom bilan javob bering (masalan: "Assalomu alaykum Shohjahon! Siz platformamiz asoschisisiz va hisobingiz umrbod VIP obunada, barcha tizimlar to'liq nazorat ostida, xizmatingizdaman! 😊").
+  • Agar Shohjahon biror narsa so'rasa yoki tekshirsa, unga to'liq haqiqiy holatni hisobot tarzida bering.`;
+  } else {
+    interlocutorSection = `
+👤 SUHBATDOSH HAQIDA HAQIQIY MA'LUMOTLAR:
+- Telegram ID: ${chatId}
+- Telegram Ismi: ${firstName || 'Noma\'lum'}
+- Telegram Username: ${username || 'yo\'q'}
+- Sayt bilan bog'langanmi: ${linkedEmail ? `HA, BOG'LANGAN (Email: ${linkedEmail}, Ism: ${profileDisplayName})` : `YO'Q, HALI BOG'LANMAGAN`}
+- Joriy tarifi: ${currentPlan} (Amal qilish muddati: ${dueDateStr})
+- Foydalanuvchining botlari soni: ${userBots.length} ta
+${userBots.length > 0 ? userBots.map((b, i) => `  ${i + 1}. "${b.name}" (${b.language}, Kirish: ${b.entryPoint}) — Holati: ${b.status.toUpperCase()}, Xotira: ${b.memory || '0MB'}`).join('\n') : '  (Ushbu hisobda hali birorta bot yuklanmagan)'}
+- Stars to'lovlari: ${userStarsPayments.length > 0 ? userStarsPayments.map(p => `${p.stars} ⭐️ (${p.plan.toUpperCase()}, ${p.created_at})`).join(', ') : 'Hali Stars to\'lovi qilinmagan'}`;
+  }
+
+  return `
+Siz — CloudBot.uz platformasining aqlli, samimiy, insoniy va do'stona rasmiy mutaxassisisiz (Botly AI).
+Siz faqat va faqat HAQIQIY, BAZADA MAVJUD REAL FAKTLAR asosida javob berasiz.
+
+==============================================
+⚠️ QAT'IY TALAB: YOLG'ON VA UYDIRMALAR TAQIQLANADI!
+==============================================
+1. HECH QACHON bo'lmagan soxta xususiyatlarni to'qimang!
+   ❌ "Saytdan tasdiqlash kodi keladi", "Kodni tasdiqlang", "Emailga kod bordi" deb yolg'on gapirmang! CloudBot.uz da Telegram hisobni bog'lash uchun shunchaki botga "/link emailingiz@gmail.com" buyrug'i yoziladi va u BAZADA DARHOL BOG'LANADI — hech qanday tasdiqlash kodi yoki tasdiqlash xabari kutilmaydi!
+   ❌ Uydirma shaxsiy ma'lumotlar, soxta sanalar va to'qima cheklovlar mutlaqo man etiladi.
+2. Foydalanuvchi o'zining botlari, hisobi yoki tarifi haqida so'rasa, pastda keltirilgan BAZADAGI HAQIQIY MA'LUMOTLAR asosida aniq javob bering.
+   - Agar foydalanuvchi hisobi saytga ulanmagan bo'lsa: "Sizning profilingiz hali botimizga ulanmagan. Iltimos, /link emailingiz@gmail.com buyrug'i orqali saytdagi hisobingizni ulang. Shunda botlaringiz va tarifingizni aniq ko'rsatib bera olaman! 😊" deb ayting.
+3. Agar sizda biror narsa bo'yicha aniq ma'lumot bo'lmasa, o'zingizdan to'qimang, balki ochiq va samimiy ayting.
+
+${interlocutorSection}
+
+📊 PLATFORMANING REAL JONLI STATISTIKASI:
+- Platforma: CloudBot.uz — Telegram va Discord botlar uchun 24/7 Cloud Hosting
+- Asoschisi va dasturchi: Ismoilov Shohjahon (@shoh_deweloper, ismoilovshohjahon750@gmail.com)
+- Ro'yxatdan o'tgan foydalanuvchilar: ${totalUsers} ta
+- Joylashtirilgan jami botlar: ${totalBots} ta (Ayni paytda faol ishlayotgani: ${runningBots} ta)
+- O'zbekiston joriy vaqti: ${uzbTime.timeStr} (Asia/Tashkent)
+- Qo'llab-quvvatlanadigan dasturlash tillari: Python (aiogram, telebot, python-telegram-bot), Node.js (telegraf, grammy, discord.js), Go, Rust, Ruby, PHP.
+
+💰 HAQIQIY TARIFLAR:
+1. BEPUL (Free):
+   • Narxi: $0
+   • 2 tagacha bot
+   • 2 oy davomida xizmat
+   • Ish vaqti: 07:25 dan 21:00 gacha (O'zbekiston vaqti)
+   • Botly AI: 45 token/kuniga
+   • Standart monitoring
+
+2. PRO:
+   • Narxi: $20/oy yoki 150 ⭐️ Stars
+   • 10 tagacha bot
+   • 10 oy davomida kafolatli ishlash
+   • Ish vaqti: 06:30 dan 22:35 gacha (O'zbekiston vaqti)
+   • Botly AI: 145 token/kuniga
+   • Avtomatik qayta tiklanish (Auto-restart) va batafsil loglar
+
+3. VIP:
+   • Narxi: $35/oy yoki 350 ⭐️ Stars
+   • 30 tagacha bot
+   • Cheksiz muddat
+   • Ish vaqti: 04:00 dan 00:00 (yarim kecha) gacha
+   • Botly AI: 500 token/kuniga
+   • 24/7 shaxsiy yordamchi va eng yuqori server resurslari
+
+⭐️ TELEGRAM STARS (XTR) TO'LOVLARI:
+- Foydalanuvchilar botda to'g'ridan-to'g'ri /stars buyrug'i orqali PRO va VIP obunani 1 soniyada xarid qilishlari mumkin.
+- Pro: 150 ⭐️ Stars. VIP: 350 ⭐️ Stars.
+- Barcha to'lovlar qat'iy va qaytarilmaydi (No Refund Policy).
+
+MULOQOT USLUBI VA KO'P TILLILIK:
+- Samimiy, xushmuomala, tabiiy insondek gaplashing. "Men robotman", "Men sun'iy intellektman" kabi soxta robotcha so'zlarni ishlatmang.
+- Foydalanuvchi qaysi tilda yozsa (o'zbekcha lotin, o'zbekcha kirill, ruscha, inglizcha), AYNAN O'SHA TILDA javob bering.
+- Server infratuzilmasining maxfiy sirlari (ichki IP, portlar, parollar, server.ts kodi) sir saqlanadi.
+- Buzg'unchi, fishing yoki DDoS botlarga yordam berilmaydi.
+`.trim();
+}
+
+async function handleTelegramPreCheckout(botToken: string, preCheckout: any) {
+  try {
+    const queryId = preCheckout.id;
+    const currency = preCheckout.currency;
+    const totalAmount = preCheckout.total_amount;
+    console.log(`[Telegram PreCheckout]: QueryId=${queryId}, Currency=${currency}, Amount=${totalAmount}`);
+
+    // XTR Stars to'lovini darhol qabul qilish
+    if (currency === 'XTR') {
+      await answerPreCheckoutQuery(botToken, queryId, true);
+    } else {
+      await answerPreCheckoutQuery(botToken, queryId, false, "Faqat Telegram Stars (XTR) to'lovlari qabul qilinadi.");
+    }
+  } catch (e: any) {
+    console.error("[handleTelegramPreCheckout error]:", e);
+    try {
+      await answerPreCheckoutQuery(botToken, preCheckout?.id, false, "To'lovni tasdiqlashda xatolik yuz berdi.");
+    } catch (_) {}
+  }
+}
+
+async function handleTelegramCallbackQuery(botToken: string, adminId: string, query: any) {
+  if (!query || !query.message) return;
+  const callbackId = query.id;
+  const data = query.data || '';
+  const message = query.message;
+  const chatId = message.chat.id;
+  const fromUser = query.from || {};
+  const fromId = fromUser.id || chatId;
+
+  await answerTelegramCallbackQuery(botToken, callbackId);
+
+  if (data === 'menu_main') {
+    await sendTelegramMainMenu(botToken, chatId, fromUser.first_name);
+    return;
+  }
+
+  if (data === 'menu_stars') {
+    await sendTelegramStarsMenu(botToken, chatId);
+    return;
+  }
+
+  if (data === 'menu_tariffs') {
+    await sendTelegramTariffsInfo(botToken, chatId);
+    return;
+  }
+
+  if (data === 'menu_profile') {
+    await sendTelegramUserProfile(botToken, chatId, fromUser);
+    return;
+  }
+
+  if (data === 'menu_link') {
+    const linkMsg = `
+🔗 <b>CloudBot.uz saytidagi profilingizni ulash</b>
+
+Telegram bot orqali Stars bilan to'laganingizda obuna to'g'ridan-to'g'ri platformadagi hisobingizga birikishi uchun emailingizni bog'lang.
+
+<b>Ulash buyrug'i:</b>
+<code>/link sizning_emailingiz@gmail.com</code>
+
+<i>Misol:</i>
+<code>/link shohjahon@gmail.com</code>
+
+✅ Bog'langaningizdan so'ng xarid qilgan barcha Stars obunalaringiz saytingizda faol bo'ladi!
+`.trim();
+    const keyboard = {
+      inline_keyboard: [
+        [{ text: "⭐️ Stars orqali to'lash", callback_data: "menu_stars" }],
+        [{ text: "🔙 Bosh menyu", callback_data: "menu_main" }]
+      ]
+    };
+    await sendTelegramMessage(botToken, chatId, linkMsg, 'HTML', undefined, keyboard);
+    return;
+  }
+
+  if (data.startsWith('buy_')) {
+    const planKey = data.replace('buy_', '');
+    const planConfig = TELEGRAM_STARS_PLANS[planKey];
+    if (planConfig) {
+      const invoicePayload = JSON.stringify({
+        key: planKey,
+        plan: planConfig.plan,
+        days: planConfig.days,
+        stars: planConfig.stars,
+        chatId: chatId,
+        fromId: fromId,
+        ts: Date.now()
+      });
+
+      await sendTelegramInvoice(botToken, chatId, {
+        title: planConfig.name,
+        description: planConfig.desc,
+        payload: invoicePayload,
+        stars: planConfig.stars
+      });
+    } else {
+      await sendTelegramMessage(botToken, chatId, "Tanlangan tarif topilmadi. Iltimos, /stars orqali qaytadan urinib ko'ring.");
+    }
+    return;
+  }
+}
+
+async function handleTelegramSuccessfulPayment(botToken: string, adminId: string, message: any) {
+  const sp = message.successful_payment;
+  const chatId = message.chat.id;
+  const fromUser = message.from || {};
+  const fromId = fromUser.id || chatId;
+  const username = fromUser.username || '';
+  const firstName = fromUser.first_name || '';
+
+  const totalAmount = sp.total_amount; // stars miqdori
+  const currency = sp.currency; // 'XTR'
+  const chargeId = sp.telegram_payment_charge_id;
+  const providerChargeId = sp.provider_payment_charge_id || '';
+  const invoicePayloadStr = sp.invoice_payload || '{}';
+
+  let parsedPayload: any = {};
+  try {
+    parsedPayload = JSON.parse(invoicePayloadStr);
+  } catch (_) {
+    parsedPayload = {};
+  }
+
+  const plan = (parsedPayload.plan || (totalAmount >= 350 ? 'vip' : 'pro')) as 'pro' | 'vip';
+  const days = Number(parsedPayload.days) || (totalAmount >= 900 ? 90 : (totalAmount <= 50 ? 7 : 30));
+
+  console.log(`[Telegram Stars Payment]: User ${firstName} (${chatId}) paid ${totalAmount} ${currency} for ${plan} (${days} days). ChargeId=${chargeId}`);
+
+  // Bog'langan foydalanuvchini aniqlash
+  let linkedEmail = '';
+  let linkedUserId = '';
+  try {
+    const linkRow = db.prepare("SELECT email, user_id FROM telegram_user_links WHERE chat_id = ?").get(chatId) as any;
+    if (linkRow && linkRow.email) {
+      linkedEmail = linkRow.email;
+      linkedUserId = linkRow.user_id || linkRow.email;
+    }
+  } catch (_) {}
+
+  // Agar telegram_user_links bo'lmasa, profiles jadvalidan qidirish
+  if (!linkedUserId && linkedEmail) {
+    try {
+      const prof = db.prepare("SELECT user_id FROM profiles WHERE email = ?").get(linkedEmail) as any;
+      if (prof?.user_id) linkedUserId = prof.user_id;
+    } catch (_) {}
+  }
+
+  // To'lovni bazaga saqlash
+  const paymentId = 'stars_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+  try {
+    db.prepare(`
+      INSERT INTO telegram_stars_payments (
+        id, chat_id, from_id, username, first_name, plan, duration_days, stars, currency, charge_id, provider_charge_id, status, linked_email, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, datetime('now'))
+    `).run(paymentId, chatId, fromId, username, firstName, plan, days, totalAmount, currency, chargeId, providerChargeId, linkedEmail || null);
+  } catch (e) {
+    console.error("Failed to insert telegram_stars_payments:", e);
+  }
+
+  // Obuna muddatini hisoblash (agar foydalanuvchida avvaldan aktiv obuna bo'lsa, davomi qilib qo'shiladi)
+  const now = new Date();
+  let baseDate = now;
+  if (linkedUserId) {
+    try {
+      const curSub = db.prepare("SELECT * FROM subscriptions WHERE user_id = ?").get(linkedUserId) as any;
+      if (curSub && (curSub.plan === plan || curSub.plan === 'vip')) {
+        if (curSub.dueDateISO) {
+          const d = new Date(curSub.dueDateISO);
+          if (d.getTime() > now.getTime()) baseDate = d;
+        }
+      }
+    } catch (_) {}
+  }
+
+  const dueDate = new Date(baseDate.getTime() + days * 24 * 60 * 60 * 1000);
+  const dueDateISO = dueDate.toISOString();
+  const dueDateFormatted = formatDateTimeStars(dueDate);
+  const assignedDateFormatted = formatDateTimeStars(now);
+
+  // Platformadagi obunani yangilash
+  if (linkedUserId) {
+    try {
+      db.prepare(`
+        INSERT OR REPLACE INTO subscriptions (
+          user_id, plan, assignedDateFormatted, dueDateFormatted, assignedAt, dueDateISO, updatedAt
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(linkedUserId, plan, assignedDateFormatted, dueDateFormatted, now.toISOString(), dueDateISO, now.toISOString());
+
+      // Bildirishnoma qoldirish
+      db.prepare(`
+        INSERT INTO notifications (userId, userEmail, title, message, type, createdAt, read)
+        VALUES (?, ?, ?, ?, 'sub_activated', datetime('now'), 0)
+      `).run(
+        linkedUserId,
+        linkedEmail,
+        `⭐️ Telegram Stars orqali ${plan.toUpperCase()} faollashtirildi!`,
+        `Siz Telegram Stars orqali ${totalAmount} XTR to'lov qildingiz. ${plan.toUpperCase()} obunangiz ${dueDateFormatted} gacha uzaytirildi.`
+      );
+
+      // Firestore ga sinxronizatsiya
+      if (adminDb && !isFirestoreQuotaExhausted()) {
+        try {
+          await adminDb.collection('subscriptions').doc(linkedUserId).set({
+            plan,
+            assignedDateFormatted,
+            dueDateFormatted,
+            assignedAt: now.toISOString(),
+            dueDateISO,
+            updatedAt: now.toISOString(),
+            paidWithStars: true,
+            starsAmount: totalAmount,
+            starsChargeId: chargeId
+          }, { merge: true });
+        } catch (_) {}
+      }
+    } catch (err) {
+      console.error("Error activating subscription for linked user:", err);
+    }
+  }
+
+  // Foydalanuvchiga tasdiqlov xabari
+  const successMsg = `
+🎉 <b>TO'LOV MUVAFFAQIYATLI QABUL QILINDI!</b> ⭐️
+
+To'lovingiz uchun katta rahmat! Obunangiz faollashtirildi.
+
+⭐️ <b>To'langan miqdor:</b> <b>${totalAmount} Stars (XTR)</b>
+📦 <b>Tarif:</b> <b>${plan.toUpperCase()}</b> (${days} kun)
+📅 <b>Amal qilish muddati:</b> <b>${dueDateFormatted}</b> gacha
+🧾 <b>To'lov ID:</b> <code>${chargeId}</code>
+
+${linkedEmail ? `✅ <b>Bog'langan sayt akkaunti:</b> <code>${linkedEmail}</code>\nBarcha xizmatlar (ko'p bot joylash, 24/7 monitoring, Botly AI) saytdagi hisobingizga biriktirildi!` : `💡 <b>Muhim eslatma:</b> CloudBot.uz saytidagi profilingizga ushbu obunani bog'lash uchun <code>/link sizning_emailingiz@gmail.com</code> buyrug'ini yuboring.`}
+
+Savollaringiz bo'lsa @shoh_deweloper ga murojaat qilishingiz mumkin.
+`.trim();
+
+  const keyboard = {
+    inline_keyboard: [
+      [{ text: "👤 Mening hisobim", callback_data: "menu_profile" }],
+      [{ text: "🔗 Sayt hisobini ulash", callback_data: "menu_link" }],
+      [{ text: "🌐 CloudBot.uz ga o'tish", url: "https://cloudbot.uz" }]
+    ]
+  };
+
+  await sendTelegramMessage(botToken, chatId, successMsg, 'HTML', undefined, keyboard);
+
+  // Administratorga xabar berish
+  const realAdminId = adminId || "8453381252";
+  const adminAlert = `
+🌟 <b>YANGI TELEGRAM STARS TO'LOVI!</b> 🌟
+
+👤 <b>Foydalanuvchi:</b> ${firstName} (@${username || 'mavjud emas'})
+🆔 <b>Chat ID:</b> <code>${chatId}</code>
+⭐️ <b>Miqdor:</b> <b>${totalAmount} Stars (XTR)</b>
+📦 <b>Tarif:</b> <b>${plan.toUpperCase()}</b> (${days} kun)
+📅 <b>Amal qilish muddati:</b> ${dueDateFormatted}
+📧 <b>Bog'langan email:</b> ${linkedEmail ? `<code>${linkedEmail}</code>` : "Hali bog'lanmagan (chat_id orqali saqlandi)"}
+🧾 <b>Charge ID:</b> <code>${chargeId}</code>
+🕒 <b>Vaqt:</b> ${new Date().toLocaleString('uz-UZ', { timeZone: 'Asia/Tashkent' })}
+`.trim();
+
+  try {
+    await sendTelegramMessage(botToken, realAdminId, adminAlert, 'HTML');
+  } catch (err) {
+    console.warn("Failed to alert admin of Stars payment:", err);
+  }
+}
 
 async function handleTelegramSupportMessage(botToken: string, adminId: string, message: any, businessConnectionId?: string) {
   if (!message || !message.chat || !message.chat.id) return;
   const chatId = message.chat.id;
   const fromUser = message.from || {};
   const fromId = fromUser.id || chatId;
-  const text = (message.text || '').trim();
   const username = fromUser.username || '';
   const firstName = fromUser.first_name || '';
 
@@ -2943,6 +3794,18 @@ async function handleTelegramSupportMessage(botToken: string, adminId: string, m
   if (message.chat.type === 'channel') return;
   if (message.sender_chat && message.sender_chat.type === 'channel') return;
 
+  // Telegram Business ulanishi tekshiruvi: Agar xabarni biznes hisob egasining o'zi (Admin Shohjahon) yozayotgan bo'lsa, bot javob qaytarmaydi
+  if (businessConnectionId && adminId && (String(fromId) === String(adminId) || String(chatId) === String(adminId))) {
+    return;
+  }
+
+  // 0. Muvaffaqiyatli Stars to'lovi qabul qilingan bo'lsa:
+  if (message.successful_payment) {
+    await handleTelegramSuccessfulPayment(botToken, adminId, message);
+    return;
+  }
+
+  const text = (message.text || '').trim();
   if (!text) return;
 
   // Foydalanuvchini ro'yxatga olish / yangilash
@@ -2960,18 +3823,168 @@ async function handleTelegramSupportMessage(botToken: string, adminId: string, m
 
   // 1. /start buyrug'i
   if (text === '/start' || text.startsWith('/start ')) {
-    const welcomeMsg = `Assalomu alaykum, <b>${firstName || 'do\'stim'}</b>! 😊\n\nQandaysiz, yaxshimisiz? Botlar, dasturlash yoki xosting bo'yicha qanday savol yoki yordam kerak bo'lsa bemalol yozavering!`;
-    
-    try {
-      db.prepare("INSERT INTO telegram_support_logs (chat_id, username, role, text) VALUES (?, ?, 'user', ?)").run(chatId, username, text);
-      db.prepare("INSERT INTO telegram_support_logs (chat_id, username, role, text) VALUES (?, ?, 'assistant', ?)").run(chatId, username, welcomeMsg);
-    } catch (_) {}
-
-    await sendTelegramMessage(botToken, chatId, welcomeMsg, 'HTML', businessConnectionId);
+    const isStarsDeepLink = text.includes('stars') || text.includes('pay') || text.includes('sub');
+    if (isStarsDeepLink) {
+      await sendTelegramStarsMenu(botToken, chatId);
+      return;
+    }
+    await sendTelegramMainMenu(botToken, chatId, firstName);
     return;
   }
 
-  // 2. /admin buyrug'i (Statistika)
+  // 2. /stars, /pay, /buy, /obuna buyruqlari
+  if (
+    text === '/stars' || text.startsWith('/stars ') ||
+    text === '/pay' || text.startsWith('/pay ') ||
+    text === '/buy' || text.startsWith('/buy ') ||
+    text === '/obuna' || text.startsWith('/obuna ') ||
+    text === '/yulduz' || text.startsWith('/yulduz ')
+  ) {
+    await sendTelegramStarsMenu(botToken, chatId);
+    return;
+  }
+
+  // 3. /tariffs, /tariflar, /tarif buyruqlari
+  if (
+    text === '/tariffs' || text.startsWith('/tariffs ') ||
+    text === '/tariflar' || text.startsWith('/tariflar ') ||
+    text === '/tarif' || text.startsWith('/tarif ') ||
+    text === '/rejalar' || text.startsWith('/rejalar ')
+  ) {
+    await sendTelegramTariffsInfo(botToken, chatId);
+    return;
+  }
+
+  // 4. /profile, /profil, /me, /account buyruqlari
+  if (
+    text === '/profile' || text.startsWith('/profile ') ||
+    text === '/profil' || text.startsWith('/profil ') ||
+    text === '/me' || text.startsWith('/me ') ||
+    text === '/account' || text.startsWith('/account ')
+  ) {
+    await sendTelegramUserProfile(botToken, chatId, fromUser);
+    return;
+  }
+
+  // 5. /link buyrug'i - saytdagi emailingizni bog'lash
+  if (text === '/link' || text.startsWith('/link ') || text.startsWith('/boglash ') || text.startsWith('/ulan')) {
+    const parts = text.split(/\s+/);
+    const emailCandidate = (parts[1] || '').trim().toLowerCase();
+
+    if (!emailCandidate || !emailCandidate.includes('@') || !emailCandidate.includes('.')) {
+      const msg = `
+🔗 <b>CloudBot.uz saytidagi profilingizni ulash</b>
+
+Iltimos, emailingizni quyidagi formatda yuboring:
+<code>/link sizning_emailingiz@gmail.com</code>
+
+<i>Misol:</i>
+<code>/link shohjahon@gmail.com</code>
+
+✅ Bu orqali Telegram botda Stars bilan to'lagan obunangiz to'g'ridan-to'g'ri saytdagi akkauntingizga biriktiriladi.
+`.trim();
+      await sendTelegramMessage(botToken, chatId, msg, 'HTML');
+      return;
+    }
+
+    try {
+      db.prepare(`
+        INSERT INTO telegram_user_links (chat_id, email, user_id, created_at)
+        VALUES (?, ?, ?, datetime('now'))
+        ON CONFLICT(chat_id) DO UPDATE SET
+          email = excluded.email,
+          user_id = excluded.user_id,
+          created_at = datetime('now')
+      `).run(chatId, emailCandidate, emailCandidate);
+
+      // Agar ushbu chat_id dan avval to'lov qilingan bo'lsa, uni ham bog'lash
+      db.prepare("UPDATE telegram_stars_payments SET linked_email = ? WHERE chat_id = ? AND (linked_email IS NULL OR linked_email = '')").run(emailCandidate, chatId);
+
+      // Agar eng oxirgi to'lov bo'lsa, obunani zudlik bilan faollashtirish
+      const lastPayment = db.prepare("SELECT * FROM telegram_stars_payments WHERE chat_id = ? AND status = 'completed' ORDER BY created_at DESC LIMIT 1").get(chatId) as any;
+      if (lastPayment) {
+        const plan = lastPayment.plan || 'pro';
+        const days = lastPayment.duration_days || 30;
+        const now = new Date();
+        const dueDate = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+        const dueDateISO = dueDate.toISOString();
+        const dueDateFormatted = formatDateTimeStars(dueDate);
+        const assignedDateFormatted = formatDateTimeStars(now);
+
+        db.prepare(`
+          INSERT OR REPLACE INTO subscriptions (
+            user_id, plan, assignedDateFormatted, dueDateFormatted, assignedAt, dueDateISO, updatedAt
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(emailCandidate, plan, assignedDateFormatted, dueDateFormatted, now.toISOString(), dueDateISO, now.toISOString());
+      }
+
+      const successLinkMsg = `
+🎉 <b>Akkaunt muvaffaqiyatli ulandi!</b>
+
+Sizning Telegram profilingiz CloudBot.uz dagi <code>${emailCandidate}</code> hisobiga bog'landi.
+
+Endi bot orqali amalga oshiradigan barcha Stars to'lovlaringiz to'g'ridan-to'g'ri saytdagi profilingizda faollashadi! 🚀
+`.trim();
+
+      const keyboard = {
+        inline_keyboard: [
+          [{ text: "⭐️ Stars orqali to'lash", callback_data: "menu_stars" }],
+          [{ text: "👤 Mening profilim", callback_data: "menu_profile" }]
+        ]
+      };
+      await sendTelegramMessage(botToken, chatId, successLinkMsg, 'HTML', undefined, keyboard);
+      return;
+    } catch (err) {
+      console.error("Link email error:", err);
+      await sendTelegramMessage(botToken, chatId, "Ulash jarayonida xatolik yuz berdi. Iltimos qayta urinib ko'ring.");
+      return;
+    }
+  }
+
+  // 6. /help buyrug'i
+  if (text === '/help' || text.startsWith('/help ') || text === '/yordam' || text.startsWith('/yordam ')) {
+    const helpMsg = `
+💡 <b>CloudBot.uz Bot Buyruqlari:</b>
+
+⭐️ /stars — Telegram Stars orqali PRO va VIP obunani sotib olish
+📋 /tariffs — Platforma tariflari va xizmatlar taqqoslashi
+👤 /profile — Shaxsiy hisobingiz va faol tarifingizni ko'rish
+🔗 /link email — Saytdagi akkauntingizni botga ulash
+ℹ️ /help — Ushbu yordam xabari
+
+Savollaringiz bormi? Shunchaki savolingizni yozing, Botly AI sizga darhol yordam beradi!
+Texnik yordam: @shoh_deweloper
+`.trim();
+    const keyboard = {
+      inline_keyboard: [
+        [{ text: "⭐️ Stars orqali to'lash", callback_data: "menu_stars" }],
+        [{ text: "📋 Tariflar narxi", callback_data: "menu_tariffs" }]
+      ]
+    };
+    await sendTelegramMessage(botToken, chatId, helpMsg, 'HTML', undefined, keyboard);
+    return;
+  }
+
+  // 7. /test_stars buyrug'i (faqat admin uchun)
+  if (text === '/test_stars' || text.startsWith('/test_stars')) {
+    const isUserAdmin = adminId && (String(fromId) === String(adminId) || String(chatId) === String(adminId));
+    if (!isUserAdmin) {
+      await sendTelegramMessage(botToken, chatId, "Ushbu test buyrug'i faqat admin uchun.");
+      return;
+    }
+    const invRes = await sendTelegramInvoice(botToken, chatId, {
+      title: "CloudBot 1-Star Test To'lovi",
+      description: "Telegram Stars to'lov tizimini sinash uchun 1 yulduzli test invoysi.",
+      payload: JSON.stringify({ key: 'test', plan: 'pro', days: 1, stars: 1, chatId, fromId, ts: Date.now() }),
+      stars: 1
+    });
+    if (!invRes || !invRes.ok) {
+      await sendTelegramMessage(botToken, chatId, `Invoys yuborishda xatolik: ${JSON.stringify(invRes)}`);
+    }
+    return;
+  }
+
+  // 8. /admin buyrug'i (Statistika)
   if (text === '/admin' || text.startsWith('/admin ')) {
     const isUserAdmin = adminId && (String(fromId) === String(adminId) || String(chatId) === String(adminId));
     if (isUserAdmin) {
@@ -2984,6 +3997,8 @@ async function handleTelegramSupportMessage(botToken: string, adminId: string, m
       let totalAiUsers = 0;
       let totalAiQueries = 0;
       let todayAiQueries = 0;
+      let totalStars = 0;
+      let totalStarsCount = 0;
 
       try {
         const userCountRow = db.prepare("SELECT count(distinct user_id) as c FROM profiles").get() as any;
@@ -3011,6 +4026,10 @@ async function handleTelegramSupportMessage(botToken: string, adminId: string, m
 
         const todayMsgsRow = db.prepare("SELECT count(*) as c FROM telegram_support_logs WHERE role = 'user' AND date(created_at) = date('now')").get() as any;
         todayAiQueries = todayMsgsRow?.c || 0;
+
+        const starsRow = db.prepare("SELECT sum(stars) as s, count(*) as c FROM telegram_stars_payments WHERE status = 'completed'").get() as any;
+        totalStars = starsRow?.s || 0;
+        totalStarsCount = starsRow?.c || 0;
       } catch (e) {
         console.warn("Error gathering admin stats:", e);
       }
@@ -3027,6 +4046,10 @@ async function handleTelegramSupportMessage(botToken: string, adminId: string, m
 • PRO obunachilar ($20/oy): <b>${proUsers}</b> ta
 • VIP obunachilar ($35/oy): <b>${vipUsers}</b> ta
 • Bepul tarifdagilar: <b>${freeUsers}</b> ta
+
+<b>⭐️ Telegram Stars Daromadi:</b>
+• Jami to'langan: <b>${totalStars} ⭐️ Stars</b>
+• Muvaffaqiyatli to'lovlar: <b>${totalStarsCount}</b> ta
 
 <b>🤖 Botlar holati:</b>
 • Jami yuklangan botlar: <b>${totalBots}</b> ta
@@ -3049,7 +4072,7 @@ async function handleTelegramSupportMessage(botToken: string, adminId: string, m
     }
   }
 
-  // 3. Foydalanuvchi bilan AI suhbati (Asinxron)
+  // 9. Foydalanuvchi bilan AI suhbati (Asinxron)
   try {
     db.prepare("INSERT INTO telegram_support_logs (chat_id, username, role, text) VALUES (?, ?, 'user', ?)").run(chatId, username, text);
   } catch (_) {}
@@ -3090,14 +4113,15 @@ async function handleTelegramSupportMessage(botToken: string, adminId: string, m
 
   let replyText = "";
   try {
+    const dynamicPrompt = buildTelegramSupportPrompt(chatId, fromUser);
     const geminiRes = await callGeminiContentWithFallback({
       contents: conversationHistory,
       config: {
-        systemInstruction: CLOUDBOT_TELEGRAM_SUPPORT_PROMPT,
-        temperature: 0.7,
+        systemInstruction: dynamicPrompt,
+        temperature: 0.5,
         topP: 0.95
       },
-      preferredModel: 'gemini-3.7-flash'
+      preferredModel: 'gemini-2.5-flash'
     });
     replyText = (geminiRes.text || "").trim();
   } catch (err: any) {
@@ -3162,6 +4186,8 @@ async function startTelegramSupportBotWorker() {
           allowed_updates: [
             "message",
             "edited_message",
+            "callback_query",
+            "pre_checkout_query",
             "business_connection",
             "business_message",
             "edited_business_message"
@@ -3211,13 +4237,25 @@ async function startTelegramSupportBotWorker() {
             lastOffset = update.update_id + 1;
           }
 
-          // 1. Oddiy xabar
-          if (update.message) {
+          // 1. Telegram Stars Pre-Checkout so'rovi (To'lovni zudlik bilan tasdiqlash)
+          if (update.pre_checkout_query) {
+            handleTelegramPreCheckout(config.botToken, update.pre_checkout_query).catch(e => {
+              console.warn("[Telegram pre_checkout_query error]:", e);
+            });
+          }
+          // 2. Inline Tugmalar (Callback Query)
+          else if (update.callback_query) {
+            handleTelegramCallbackQuery(config.botToken, config.adminId, update.callback_query).catch(e => {
+              console.warn("[Telegram callback_query error]:", e);
+            });
+          }
+          // 3. Oddiy xabar (va successful_payment)
+          else if (update.message) {
             handleTelegramSupportMessage(config.botToken, config.adminId, update.message).catch(e => {
               console.warn("[Telegram message handling error]:", e);
             });
           }
-          // 2. Telegram Biznes xabarlari (Business Chatbot)
+          // 4. Telegram Biznes xabarlari (Business Chatbot)
           else if (update.business_message) {
             const bizMsg = update.business_message;
             const bizConnId = bizMsg.business_connection_id;
@@ -3225,7 +4263,7 @@ async function startTelegramSupportBotWorker() {
               console.warn("[Telegram business message handling error]:", e);
             });
           }
-          // 3. Telegram Biznes ulanishi holati
+          // 5. Telegram Biznes ulanishi holati
           else if (update.business_connection) {
             const conn = update.business_connection;
             console.log(`[Telegram Business Connection Update]: ID=${conn.id}, User=${conn.user_id}, CanReply=${conn.can_reply}, IsEnabled=${conn.is_enabled}`);
@@ -3515,9 +4553,18 @@ async function startServer() {
       try {
         const sqliteSubs = db.prepare("SELECT * FROM subscriptions WHERE plan IN ('pro', 'vip')").all() as any[];
         for (const row of sqliteSubs) {
+          const userId = row.user_id;
+
+          // Asoschi / SuperAdmin obunasi UMRBOD bo'lib, HECH QACHON o'chirilmaydi yoki muddati tugamaydi!
+          if (
+            userId === 'xTfDiBqv28YWG2MjTnyzDZeFTRm1' ||
+            userId === 'ismoilovshohjahon750@gmail.com'
+          ) {
+            continue;
+          }
+
           const dueDate = parseDueDate(row);
           if (dueDate && now.getTime() >= dueDate.getTime()) {
-            const userId = row.user_id;
             const oldPlan = row.plan || 'pro';
             const formattedExpDate = formatDateTimeFull(now);
 
@@ -3679,19 +4726,28 @@ async function startServer() {
 
   app.get("/api/user/subscription", requireAuth, async (req: AuthRequest, res) => {
     const userId = req.user?.uid;
+    const userEmail = req.user?.email || '';
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
     try {
       await checkAndExpireSubscriptions();
-      const userSub = db.prepare('SELECT * FROM subscriptions WHERE user_id = ?').get(userId) as any;
-      const plan = userSub?.plan || 'free';
+      const isOwner = userEmail === 'ismoilovshohjahon750@gmail.com' || userId === 'xTfDiBqv28YWG2MjTnyzDZeFTRm1';
+
+      const userSub = db.prepare(`
+        SELECT * FROM subscriptions 
+        WHERE user_id = ? OR user_id = ? OR user_id IN (SELECT user_id FROM profiles WHERE email = ?)
+        ORDER BY CASE WHEN plan = 'vip' THEN 3 WHEN plan = 'pro' THEN 2 ELSE 1 END DESC
+        LIMIT 1
+      `).get(userId, userEmail, userEmail) as any;
+
+      const plan = isOwner ? 'vip' : (userSub?.plan || 'free');
 
       res.json({
         success: true,
         plan,
-        assignedDateFormatted: userSub?.assignedDateFormatted || null,
-        dueDateFormatted: userSub?.dueDateFormatted || null,
-        dueDateISO: userSub?.dueDateISO || null
+        assignedDateFormatted: isOwner ? '14.09.2026' : (userSub?.assignedDateFormatted || null),
+        dueDateFormatted: isOwner ? 'Cheksiz (Umrbod VIP)' : (userSub?.dueDateFormatted || null),
+        dueDateISO: isOwner ? '2099-12-31T23:59:59.999Z' : (userSub?.dueDateISO || null)
       });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -4344,7 +5400,12 @@ async function startServer() {
       const msgsCountRow = db.prepare("SELECT count(*) as c FROM telegram_support_logs WHERE role = 'user'").get() as any;
       const todayMsgsRow = db.prepare("SELECT count(*) as c FROM telegram_support_logs WHERE role = 'user' AND date(created_at) = date('now')").get() as any;
       
+      const starsRow = db.prepare("SELECT sum(stars) as s, count(*) as c FROM telegram_stars_payments WHERE status = 'completed'").get() as any;
+      const totalStars = starsRow?.s || 0;
+      const totalStarsCount = starsRow?.c || 0;
+
       const recentLogs = db.prepare("SELECT id, chat_id, username, role, text, created_at FROM telegram_support_logs ORDER BY id DESC LIMIT 50").all();
+      const recentStarsPayments = db.prepare("SELECT * FROM telegram_stars_payments ORDER BY id DESC LIMIT 30").all();
 
       res.json({
         hasToken: !!config.botToken,
@@ -4358,13 +5419,61 @@ async function startServer() {
           totalUsers: usersCountRow?.c || 0,
           totalQueries: msgsCountRow?.c || 0,
           todayQueries: todayMsgsRow?.c || 0,
+          totalStars,
+          totalStarsCount,
           lastPollTime: telegramBotLastPollTime ? new Date(telegramBotLastPollTime).toISOString() : null
         },
+        recentStarsPayments,
         recentLogs
       });
     } catch (e: any) {
       console.error("GET /api/admin/telegram-bot error:", e);
       res.status(500).json({ error: "Ma'lumotlarni olishda xatolik" });
+    }
+  });
+
+  // Public Telegram Bot & Stars Info Endpoint
+  app.get("/api/telegram-bot/public", async (req, res) => {
+    try {
+      const config = getTelegramSupportConfig();
+      let botUsername = "CloudBotUz_bot";
+      if (config.botToken) {
+        try {
+          const bRes = await fetch(`https://api.telegram.org/bot${config.botToken}/getMe`, { signal: AbortSignal.timeout(4000) });
+          const bData = await bRes.json();
+          if (bData.ok && bData.result && bData.result.username) {
+            botUsername = bData.result.username;
+          }
+        } catch (_) {}
+      }
+
+      res.json({
+        success: true,
+        botUsername,
+        enabled: config.enabled,
+        plans: TELEGRAM_STARS_PLANS
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to get telegram bot info" });
+    }
+  });
+
+  // Foydalanuvchining Telegram Stars to'lovlari va bog'lanish holati
+  app.get("/api/telegram-stars/user-info", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const email = req.user?.email || '';
+      if (!email) return res.json({ linked: false, payments: [] });
+
+      const linkRow = db.prepare("SELECT * FROM telegram_user_links WHERE email = ?").get(email) as any;
+      const payments = db.prepare("SELECT * FROM telegram_stars_payments WHERE linked_email = ? ORDER BY id DESC LIMIT 20").all(email);
+
+      res.json({
+        linked: !!linkRow,
+        linkInfo: linkRow || null,
+        payments: payments || []
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
     }
   });
 
@@ -7836,8 +8945,12 @@ QAT'IY TALABLAR VA QOIDALAR:
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
+    const isHmrDisabled = process.env.DISABLE_HMR === "true";
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: isHmrDisabled ? false : undefined,
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);

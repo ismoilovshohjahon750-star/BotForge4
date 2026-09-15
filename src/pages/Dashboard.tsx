@@ -212,6 +212,11 @@ export const Dashboard: React.FC = () => {
   useEffect(() => {
     if (!user) return;
 
+    const isOwner = user.email === 'ismoilovshohjahon750@gmail.com' || user.uid === 'xTfDiBqv28YWG2MjTnyzDZeFTRm1';
+    if (isOwner) {
+      setUserPlan('vip');
+    }
+
     const fetchSubFromApi = async () => {
       try {
         const token = await user.getIdToken();
@@ -221,7 +226,7 @@ export const Dashboard: React.FC = () => {
         if (res.ok) {
           const data = await res.json();
           if (data.plan) {
-            setUserPlan(data.plan);
+            setUserPlan(isOwner ? 'vip' : data.plan);
           }
         }
       } catch (e) {}
@@ -235,9 +240,10 @@ export const Dashboard: React.FC = () => {
     let unsubSub = () => {};
     unsubSub = onSnapshot(subRef, (snapshot) => {
       if (snapshot.exists()) {
-        setUserPlan((snapshot.data()?.plan as any) || 'free');
+        const fsPlan = (snapshot.data()?.plan as any) || 'free';
+        setUserPlan(isOwner ? 'vip' : fsPlan);
       } else {
-        setUserPlan('free');
+        setUserPlan(isOwner ? 'vip' : 'free');
       }
     }, (err: any) => {
       fetchSubFromApi();

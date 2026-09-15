@@ -34,6 +34,7 @@ interface Plan {
   id: 'free' | 'pro' | 'vip';
   name: string;
   price: string;
+  starsPrice?: string;
   desc: string;
   features: string[];
   button: string;
@@ -52,6 +53,18 @@ export const Pricing: React.FC = () => {
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [activeFaq, setActiveFaq] = useState<number | null>(null);
+  const [botUsername, setBotUsername] = useState<string>('CloudBotUz_bot');
+
+  useEffect(() => {
+    fetch('/api/telegram-bot/public')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.botUsername) {
+          setBotUsername(data.botUsername);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const plans: Plan[] = [
     {
@@ -74,6 +87,7 @@ export const Pricing: React.FC = () => {
       id: 'pro',
       name: t('plan_pro_name', "Pro"),
       price: "$20",
+      starsPrice: "150 ⭐️ Stars",
       desc: t('plan_pro_desc', "Kichik biznes va faol loyihalar uchun"),
       features: [
         t('plan_pro_f1', "10 tagacha bot joylashtirish"),
@@ -91,7 +105,8 @@ export const Pricing: React.FC = () => {
     {
       id: 'vip',
       name: t('plan_vip_name', "VIP"),
-      price: "$49",
+      price: "$35",
+      starsPrice: "350 ⭐️ Stars",
       desc: t('plan_vip_desc', "Professional va yirik loyihalar uchun"),
       features: [
         t('plan_vip_f1', "30 tagacha bot joylashtirish"),
@@ -218,7 +233,7 @@ export const Pricing: React.FC = () => {
   return (
     <div className="container mx-auto px-4 py-16 md:py-24 relative max-w-7xl">
       {/* Header Banner */}
-      <div className="text-center mb-16 max-w-3xl mx-auto space-y-4">
+      <div className="text-center mb-10 max-w-3xl mx-auto space-y-4">
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-semibold uppercase tracking-wider">
           <Zap className="w-3.5 h-3.5" />
           <span>{t('pricing_title', 'Shaffof va Qulay Tariflar')}</span>
@@ -229,6 +244,35 @@ export const Pricing: React.FC = () => {
         <p className="text-slate-400 text-sm md:text-base leading-relaxed">
           {t('pricing_subtitle', "O'zingizga mos tarifni tanlang va botlaringizni 24/7 uzluksiz ishga tushiring")}
         </p>
+      </div>
+
+      {/* Telegram Stars Direct Payment Banner */}
+      <div className="max-w-4xl mx-auto mb-10 p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-yellow-500/10 to-amber-600/10 border border-amber-500/30 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl shadow-amber-950/20 backdrop-blur-sm">
+        <div className="flex items-center gap-3.5 text-left">
+          <div className="w-12 h-12 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 text-2xl font-bold shrink-0 shadow-inner">
+            ⭐️
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm sm:text-base font-bold text-white">Telegram Stars (⭐️) orqali to'lov</h3>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-400 text-slate-950 uppercase tracking-wider">
+                YANGI
+              </span>
+            </div>
+            <p className="text-xs text-slate-300 mt-0.5">
+              Rasmiy botimizda Stars orqali 1 soniyada xarid qiling! PRO (150 ⭐️) va VIP (350 ⭐️) avtomatik faollashadi.
+            </p>
+          </div>
+        </div>
+        <a
+          href={`https://t.me/${botUsername || 'CloudBotUz_bot'}?start=stars`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-md transition-all shrink-0 cursor-pointer"
+        >
+          <span>⭐️ Stars bilan to'lash</span>
+          <ExternalLink className="w-3.5 h-3.5" />
+        </a>
       </div>
 
       {/* Pricing Cards Grid */}
@@ -270,11 +314,19 @@ export const Pricing: React.FC = () => {
               </CardHeader>
 
               <CardContent className="flex-1 space-y-6">
-                <div className="flex items-baseline gap-1.5 border-b border-white/5 pb-6">
-                  <span className="text-4xl md:text-5xl font-extrabold text-white">{plan.price}</span>
-                  <span className="text-slate-400 text-sm">
-                    {isFree ? t('pricing_per_forever', '/abadiy') : t('pricing_per_month', '/oyiga')}
-                  </span>
+                <div className="border-b border-white/5 pb-6">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-4xl md:text-5xl font-extrabold text-white">{plan.price}</span>
+                    <span className="text-slate-400 text-sm">
+                      {isFree ? t('pricing_per_forever', '/abadiy') : t('pricing_per_month', '/oyiga')}
+                    </span>
+                  </div>
+                  {plan.starsPrice && (
+                    <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold">
+                      <span>yoki</span>
+                      <span className="font-bold text-amber-200">{plan.starsPrice}</span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-3">
@@ -292,7 +344,7 @@ export const Pricing: React.FC = () => {
                 </div>
               </CardContent>
 
-              <CardFooter className="pt-2 pb-6">
+              <CardFooter className="pt-2 pb-6 flex flex-col gap-2">
                 <Button 
                   className={`w-full h-12 rounded-xl flex items-center justify-center gap-2 font-semibold text-sm cursor-pointer transition-all shadow-md ${
                     isFree 
@@ -315,6 +367,18 @@ export const Pricing: React.FC = () => {
                     </>
                   )}
                 </Button>
+
+                {!isFree && (
+                  <a
+                    href={`https://t.me/${botUsername || 'CloudBotUz_bot'}?start=stars`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full py-2.5 px-3 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                  >
+                    <span>⭐️ Stars bilan to'lash ({plan.starsPrice})</span>
+                    <ExternalLink className="w-3 h-3 opacity-70" />
+                  </a>
+                )}
               </CardFooter>
             </Card>
           );
@@ -456,6 +520,26 @@ export const Pricing: React.FC = () => {
                 <span className="bg-primary/20 text-primary px-2.5 py-0.5 rounded-full font-bold">
                   {selectedPlan.name} - {selectedPlan.price}
                 </span>
+              </div>
+
+              {/* Instant Telegram Stars callout */}
+              <div className="mx-6 mt-4 p-3 rounded-xl bg-gradient-to-r from-amber-500/15 to-yellow-500/10 border border-amber-500/30 flex items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2 text-amber-200">
+                  <span className="text-base">⭐️</span>
+                  <div>
+                    <div className="font-semibold text-white">Stars (XTR) bilan to'laysizmi?</div>
+                    <div className="text-[11px] text-amber-300/80">Botimizda 1 soniyada avtomatik faollashadi!</div>
+                  </div>
+                </div>
+                <a
+                  href={`https://t.me/${botUsername || 'CloudBotUz_bot'}?start=stars`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-[11px] whitespace-nowrap shadow-sm flex items-center gap-1 shrink-0"
+                >
+                  <span>Botda to'lash</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
               </div>
 
               {/* Form Content */}

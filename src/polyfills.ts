@@ -1,5 +1,4 @@
 // Comprehensive Polyfills for Legacy Browsers & WebViews (Android 5/6, Chrome 44-50, Safari 9+)
-import cssVars from 'css-vars-ponyfill';
 
 (function() {
   if (typeof window === 'undefined') return;
@@ -293,71 +292,125 @@ import cssVars from 'css-vars-ponyfill';
     };
   }
 
-  // 15. CSS Cascade Layers (@layer) Unwrapper for Legacy Browsers (Chrome < 99, Android 5/6 WebView)
-  if (typeof (window as any).CSSLayerBlockRule === 'undefined') {
-    const unwrapCss = (css: string): string => {
-      if (!css || css.indexOf('@layer') === -1) return css;
-      const res = css.replace(/@layer\s+[^;{]+;/g, '');
-      const out: string[] = [];
-      let i = 0;
-      const n = res.length;
-      while (i < n) {
-        if (res.indexOf('@layer', i) === i) {
-          const b = res.indexOf('{', i);
-          if (b !== -1) {
-            let depth = 1;
-            let j = b + 1;
-            while (j < n && depth > 0) {
-              const c = res.charAt(j);
-              if (c === '{') depth++;
-              else if (c === '}') depth--;
-              j++;
+  // 15. Array.prototype.flatMap
+  if (!Array.prototype.flatMap) {
+    Array.prototype.flatMap = function(callback: any, thisArg?: any) {
+      return Array.prototype.map.call(this, callback, thisArg).flat(1);
+    };
+  }
+
+  // 16. Object.values & Object.entries
+  if (!Object.values) {
+    (Object as any).values = function(obj: any) {
+      return Object.keys(obj).map(function(k) { return obj[k]; });
+    };
+  }
+  if (!Object.entries) {
+    (Object as any).entries = function(obj: any) {
+      return Object.keys(obj).map(function(k) { return [k, obj[k]]; });
+    };
+  }
+
+  // 17. Promise.allSettled
+  if (!Promise.allSettled) {
+    (Promise as any).allSettled = function(promises: Iterable<any>) {
+      return Promise.all(
+        Array.from(promises).map(function(item) {
+          return Promise.resolve(item).then(
+            function(value) { return { status: 'fulfilled' as const, value: value }; },
+            function(reason) { return { status: 'rejected' as const, reason: reason }; }
+          );
+        })
+      );
+    };
+  }
+
+  // 18. crypto.randomUUID fallback
+  if (typeof window.crypto === 'undefined') {
+    (window as any).crypto = {};
+  }
+  if (typeof window.crypto.randomUUID !== 'function') {
+    window.crypto.randomUUID = function() {
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      }) as any;
+    };
+  }
+
+  // 19. CSS Cascade Layers (@layer) & @property Unwrapper for Legacy Browsers (Chrome < 99, Android 5/6/7 WebView, Safari < 16)
+  const isLayerSupported = typeof (window as any).CSSLayerBlockRule !== 'undefined';
+  
+  const unwrapCss = (css: string): string => {
+    if (!css) return css;
+    // Strip standalone layer declarations
+    let res = css.replace(/@layer\s+[^;{]+;/g, '');
+    // Strip @property which breaks older browser parsers
+    res = res.replace(/@property\s+--tw-[^{]+{[^}]+}/g, '');
+
+    if (res.indexOf('@layer') === -1) return res;
+
+    let output = '';
+    let i = 0;
+    const n = res.length;
+
+    while (i < n) {
+      if (res.startsWith('@layer', i)) {
+        const openBrace = res.indexOf('{', i);
+        if (openBrace !== -1) {
+          let depth = 1;
+          let j = openBrace + 1;
+          let insideQuote: string | null = null;
+          let escaped = false;
+
+          while (j < n && depth > 0) {
+            const char = res[j];
+            if (escaped) {
+              escaped = false;
+            } else if (char === '\\') {
+              escaped = true;
+            } else if (insideQuote) {
+              if (char === insideQuote) insideQuote = null;
+            } else if (char === '"' || char === "'") {
+              insideQuote = char;
+            } else if (char === '{') {
+              depth++;
+            } else if (char === '}') {
+              depth--;
+              if (depth === 0) {
+                const inner = res.slice(openBrace + 1, j);
+                output += unwrapCss(inner);
+                i = j + 1;
+                break;
+              }
             }
-            if (depth === 0) {
-              out.push(unwrapCss(res.slice(b + 1, j - 1)));
-              i = j;
-              continue;
-            }
+            j++;
           }
+          if (depth === 0) continue;
         }
-        out.push(res.charAt(i));
-        i++;
       }
-      return out.join('');
-    };
-
-    const processAllStyles = () => {
-      const styles = document.querySelectorAll('style');
-      styles.forEach((s) => {
-        if (!(s as any).__unwrapped && s.textContent && s.textContent.indexOf('@layer') !== -1) {
-          (s as any).__unwrapped = true;
-          s.textContent = unwrapCss(s.textContent);
-        }
-      });
-    };
-
-    processAllStyles();
-    if (typeof MutationObserver !== 'undefined') {
-      const obs = new MutationObserver(() => processAllStyles());
-      obs.observe(document.documentElement, { childList: true, subtree: true });
+      output += res[i];
+      i++;
     }
-    const timer = setInterval(processAllStyles, 500);
-    setTimeout(() => clearInterval(timer), 10000);
-  }
+    return output;
+  };
 
-  // 16. CSS Custom Properties (Variables) Ponyfill for Chrome < 49
-  const supportsNativeVars = window.CSS && typeof window.CSS.supports === 'function' && window.CSS.supports('(--foo: red)');
-  if (!supportsNativeVars) {
-    try {
-      if (typeof cssVars === 'function') {
-        cssVars({
-          watch: true,
-          onlyLegacy: true,
-          shadowDOM: false,
-        });
+  const processAllStyles = () => {
+    const styles = document.querySelectorAll('style');
+    styles.forEach((s) => {
+      if (!(s as any).__unwrapped && s.textContent && (s.textContent.indexOf('@layer') !== -1 || s.textContent.indexOf('@property') !== -1)) {
+        (s as any).__unwrapped = true;
+        s.textContent = unwrapCss(s.textContent);
       }
-    } catch (e) {
-      console.warn('[css-vars-ponyfill error]:', e);
-    }
+    });
+  };
+
+  processAllStyles();
+  if (typeof MutationObserver !== 'undefined') {
+    const obs = new MutationObserver(() => processAllStyles());
+    obs.observe(document.documentElement, { childList: true, subtree: true });
   }
+  const timer = setInterval(processAllStyles, 400);
+  setTimeout(() => clearInterval(timer), 12000);
 })();

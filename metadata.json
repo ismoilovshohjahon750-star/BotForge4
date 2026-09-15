@@ -1,6 +1,6 @@
 {
   "name": "Remix Remix Remix BotForge111111",
-  "description": "Telegram va Discord botlarini 24/7 bulutli hostingda ishga tushiruvchi SaaS platforma.",
+  "description": "Telegram va Discord botlarini 24/7 bulutli hostingda ishga tushiruvchi SaaS platforma hamda Telegram Stars (XTR) to'lov tizimi.",
   "requestFramePermissions": [
     "microphone"
   ],

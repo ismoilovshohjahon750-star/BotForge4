@@ -1493,7 +1493,7 @@ export const Admin: React.FC = () => {
         <TabsContent value="telegram-ai">
           <div className="space-y-6">
             {/* Status & Quick Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <Card className="border-border/60 bg-card/60 backdrop-blur-sm">
                 <CardHeader className="pb-2">
                   <CardDescription className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Bot Holati</CardDescription>
@@ -1544,6 +1544,21 @@ export const Admin: React.FC = () => {
                 </CardHeader>
                 <CardContent>
                   <span className="text-xs text-emerald-400/80">Bugun: {tgStatus?.stats?.todayQueries || 0} ta so'rov</span>
+                </CardContent>
+              </Card>
+
+              <Card className="border-amber-500/30 bg-amber-500/5 backdrop-blur-sm">
+                <CardHeader className="pb-2">
+                  <CardDescription className="text-xs font-semibold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                    <span>⭐️ Stars To'lovlari</span>
+                  </CardDescription>
+                  <CardTitle className="text-3xl font-black text-amber-400 flex items-baseline gap-1.5">
+                    <span>{tgStatus?.stats?.totalStars || 0}</span>
+                    <span className="text-xs font-semibold text-amber-300">XTR</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <span className="text-xs text-amber-400/80">Muvaffaqiyatli: {tgStatus?.stats?.totalStarsCount || 0} ta xarid</span>
                 </CardContent>
               </Card>
             </div>
@@ -1833,6 +1848,116 @@ export const Admin: React.FC = () => {
                         </p>
                       </div>
                     ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Telegram Stars Payments History Card */}
+            <Card className="border-amber-500/30 shadow-lg bg-gradient-to-b from-amber-500/5 via-card to-card">
+              <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 gap-2">
+                <div>
+                  <CardTitle className="text-lg font-bold flex items-center gap-2">
+                    <span className="text-xl">⭐️</span>
+                    <span className="text-amber-300">Telegram Stars (XTR) To'lovlari Tarixi</span>
+                  </CardTitle>
+                  <CardDescription className="text-xs mt-1">
+                    Foydalanuvchilar tomonidan rasmiy Telegram bot orqali Stars bilan sotib olingan PRO va VIP obunalar
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-xs border-amber-500/40 text-amber-300 bg-amber-500/10">
+                    Jami: {tgStatus?.stats?.totalStars || 0} Stars
+                  </Badge>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={fetchTgStatus}
+                    className="h-8 text-xs gap-1.5 rounded-lg border-amber-500/30 hover:bg-amber-500/10 text-amber-200"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    Yangilash
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {(!tgStatus?.recentStarsPayments || tgStatus.recentStarsPayments.length === 0) ? (
+                  <div className="text-center py-10 text-muted-foreground text-sm flex flex-col items-center gap-2">
+                    <div className="w-12 h-12 rounded-full bg-amber-500/10 flex items-center justify-center text-xl text-amber-400">
+                      ⭐️
+                    </div>
+                    <span>Hozircha Telegram Stars orqali to'lovlar amalga oshirilmagan.</span>
+                    <span className="text-xs text-muted-foreground/80">
+                      Telegram botingizda <code>/stars</code> yoki <code>/test_stars</code> yozib tekshirishingiz mumkin.
+                    </span>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto rounded-xl border border-border/40">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/30">
+                          <TableHead className="font-bold text-xs">Vaqti</TableHead>
+                          <TableHead className="font-bold text-xs">Foydalanuvchi</TableHead>
+                          <TableHead className="font-bold text-xs">Telegram ID</TableHead>
+                          <TableHead className="font-bold text-xs">Tarif</TableHead>
+                          <TableHead className="font-bold text-xs">Stars (XTR)</TableHead>
+                          <TableHead className="font-bold text-xs">Holati</TableHead>
+                          <TableHead className="font-bold text-xs">Bog'langan Akkaunt</TableHead>
+                          <TableHead className="font-bold text-xs font-mono">Charge ID</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {tgStatus.recentStarsPayments.map((pay: any) => (
+                          <TableRow key={pay.id} className="hover:bg-amber-500/5">
+                            <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                              {pay.created_at}
+                            </TableCell>
+                            <TableCell className="text-xs font-medium">
+                              <div className="flex flex-col">
+                                <span>{pay.telegram_first_name || 'Noma\'lum'}</span>
+                                {pay.telegram_username && (
+                                  <span className="text-[11px] text-sky-400">@{pay.telegram_username}</span>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-xs font-mono text-muted-foreground">
+                              {pay.telegram_user_id}
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              <Badge 
+                                variant="outline"
+                                className={`uppercase font-bold text-[10px] px-2 py-0.5 ${
+                                  pay.plan_id === 'vip' 
+                                    ? 'bg-purple-500/20 text-purple-300 border-purple-500/30' 
+                                    : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                                }`}
+                              >
+                                {pay.plan_id}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-xs font-bold text-amber-300 whitespace-nowrap">
+                              ⭐️ {pay.stars_amount} XTR
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                                <Check className="w-3 h-3" /> {pay.status || 'completed'}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground">
+                              {pay.user_email ? (
+                                <span className="text-foreground font-semibold">{pay.user_email}</span>
+                              ) : (
+                                <span className="italic text-[11px] text-muted-foreground">Bog'lanmagan</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-[11px] font-mono text-muted-foreground max-w-[120px] truncate" title={pay.telegram_payment_charge_id}>
+                              {pay.telegram_payment_charge_id || '—'}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
                   </div>
                 )}
               </CardContent>
