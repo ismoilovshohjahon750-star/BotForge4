@@ -164,8 +164,32 @@
   }
   body {
     @apply bg-background text-foreground;
+    line-height: 1.5;
+    -webkit-text-size-adjust: 100%;
   }
   html {
     @apply font-sans;
+    font-size: 16px;
+    line-height: 1.5;
+  }
+
+  /* Safe robust defaults for buttons across all legacy WebViews */
+  button, [role="button"] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    white-space: nowrap;
+    line-height: 1.25;
+  }
+
+  /* Ensure text headings have healthy line-height and never overlap */
+  h1, h2, h3, h4, h5, h6 {
+    line-height: 1.25;
+    word-break: break-word;
+  }
+  p {
+    line-height: 1.5;
   }
 }
+

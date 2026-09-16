@@ -16,6 +16,7 @@ import { Input } from '../components/ui/input';
 import { handleFirestoreError, OperationType } from '../lib/firestore-utils';
 import { useTranslation } from '../context/LanguageContext';
 import { ServerMonitoring } from '../components/ServerMonitoring';
+import { ArchitectureDiagram } from '../components/ArchitectureDiagram';
 
 interface SubDetail {
   plan: PlanType;
@@ -205,6 +206,7 @@ export const Admin: React.FC = () => {
     avgLatencyMs: 0
   });
   const [lbLogs, setLbLogs] = useState<any[]>([]);
+  const [selectedLogForDetails, setSelectedLogForDetails] = useState<any | null>(null);
   const [isRunningHealthCheck, setIsRunningHealthCheck] = useState(false);
   const [isUpdatingLbConfig, setIsUpdatingLbConfig] = useState(false);
   const [showAddNodeModal, setShowAddNodeModal] = useState(false);
@@ -2937,6 +2939,12 @@ fetchLiveSync();`}</pre>
             </CardHeader>
           </Card>
 
+          {/* CLOUDBOT INFRASTRUCTURE ARCHITECTURE DIAGRAM */}
+          <ArchitectureDiagram
+            onlineNodesCount={lbStats.onlineNodes}
+            totalNodesCount={lbStats.totalNodes}
+          />
+
           {/* Cluster Status Metrics Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <Card className="border-border/60 bg-card/60 p-4">
@@ -3453,9 +3461,22 @@ fetchLiveSync();`}</pre>
                             {log.latency_ms !== undefined && log.latency_ms !== null ? `${log.latency_ms} ms` : '-'}
                           </TableCell>
                           <TableCell className="text-right">
-                            <Badge className={log.status === 200 || log.status === 'success' || log.status === 'ok' ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"}>
-                              {log.status === 'success' || log.status === 200 || log.status === 'ok' ? "200 OK" : log.status}
-                            </Badge>
+                            {log.status === 200 || log.status === 'success' || log.status === 'ok' ? (
+                              <Badge className="bg-emerald-500/20 text-emerald-400">
+                                200 OK
+                              </Badge>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setSelectedLogForDetails(log)}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 hover:border-red-500/60 transition-all cursor-pointer shadow-sm hover:scale-105"
+                                title="Batafsil xatolik logini ko'rish uchun bosing"
+                              >
+                                <AlertTriangle className="w-3 h-3 text-red-400 shrink-0" />
+                                <span>{log.status || 'ERROR'}</span>
+                                <span className="text-[9px] underline opacity-80 ml-0.5 font-normal">logni ko'rish</span>
+                              </button>
+                            )}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -3642,6 +3663,99 @@ fetchLiveSync();`}</pre>
               >
                 <Trash2 className="w-4 h-4" />
                 {deletingBotId === botToDelete.id ? "O'chirilmoqda..." : "Ha, tegi bilan o'chirilsin"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ERROR / LOG DETAILS MODAL */}
+      {selectedLogForDetails && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-card border border-red-500/30 rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl animate-in fade-in-50 zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-border/60">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-red-500/20 text-red-400 border border-red-500/30">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-foreground flex items-center gap-2">
+                    <span>Xatolik Tafsilotlari & To'liq Log</span>
+                    <Badge variant="destructive" className="text-xs uppercase">
+                      {selectedLogForDetails.status || 'ERROR'}
+                    </Badge>
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    Klaster tuguni va bot o'rtasidagi so'rov paytida yuz bergan hodisa
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedLogForDetails(null)}
+                className="h-8 w-8 p-0 rounded-full hover:bg-muted"
+              >
+                ✕
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div className="p-2.5 rounded-xl bg-muted/30 border border-border/50">
+                <span className="text-muted-foreground block text-[10px] uppercase font-semibold">Bot</span>
+                <span className="font-bold text-foreground truncate block mt-0.5">{selectedLogForDetails.bot_name || selectedLogForDetails.bot_id || 'N/A'}</span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-muted/30 border border-border/50">
+                <span className="text-muted-foreground block text-[10px] uppercase font-semibold">Server Tuguni</span>
+                <span className="font-bold text-cyan-400 truncate block mt-0.5">{selectedLogForDetails.runner_name || selectedLogForDetails.runner_id || 'N/A'}</span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-muted/30 border border-border/50">
+                <span className="text-muted-foreground block text-[10px] uppercase font-semibold">Harakat</span>
+                <span className="font-bold text-foreground uppercase block mt-0.5">{selectedLogForDetails.action || 'N/A'}</span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-muted/30 border border-border/50">
+                <span className="text-muted-foreground block text-[10px] uppercase font-semibold">Vaqt</span>
+                <span className="font-mono text-muted-foreground block mt-0.5">
+                  {(selectedLogForDetails.created_at || selectedLogForDetails.timestamp) 
+                    ? new Date(selectedLogForDetails.created_at || selectedLogForDetails.timestamp).toLocaleTimeString() 
+                    : 'N/A'}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+                  <Terminal className="w-3.5 h-3.5 text-red-400" />
+                  Xatolik Xabari (Error Trace / Details):
+                </span>
+                {selectedLogForDetails.message && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-[10px] gap-1 text-muted-foreground hover:text-foreground"
+                    onClick={() => {
+                      navigator.clipboard.writeText(selectedLogForDetails.message || '');
+                      toast.success("Xatolik logi nusxalandi!");
+                    }}
+                  >
+                    <Copy className="w-3 h-3" />
+                    Nusxalash
+                  </Button>
+                )}
+              </div>
+              <div className="p-4 rounded-xl bg-black/90 border border-red-500/30 font-mono text-xs text-red-300 max-h-60 overflow-y-auto whitespace-pre-wrap break-all select-text shadow-inner">
+                {selectedLogForDetails.message || selectedLogForDetails.error || "Ushbu so'rov uchun qo'shimcha xato matni qaytarilmagan."}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end pt-2">
+              <Button
+                variant="outline"
+                onClick={() => setSelectedLogForDetails(null)}
+                className="rounded-xl px-5 text-xs font-semibold"
+              >
+                Yopish
               </Button>
             </div>
           </div>

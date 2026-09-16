@@ -103,6 +103,12 @@ export const Dashboard: React.FC = () => {
           const credFromErr = GithubAuthProvider.credentialFromError(linkErr);
           if (credFromErr?.accessToken) {
             token = credFromErr.accessToken;
+          } else if (linkErr.code === 'auth/popup-blocked' || linkErr.code === 'auth/cancelled-popup-request') {
+            toast.warning(
+              "Brauzeringizda qalqib chiquvchi oyna (popup) bloklandi. Iltimos brauzer ruxsatini bering yoki quyidagi maydonga GitHub Personal Access Token (PAT) kiriting.",
+              { duration: 6000 }
+            );
+            return;
           } else {
             // Fallback to signInWithPopup
             try {
@@ -115,6 +121,12 @@ export const Dashboard: React.FC = () => {
               const credFromSignErr = GithubAuthProvider.credentialFromError(signErr);
               if (credFromSignErr?.accessToken) {
                 token = credFromSignErr.accessToken;
+              } else if (signErr.code === 'auth/popup-blocked' || signErr.code === 'auth/cancelled-popup-request') {
+                toast.warning(
+                  "Brauzer qalqib chiquvchi oynani (popup) blokladi. Iltimos brauzer manzil satridagi qulf/qalqon belgisidan pop-up ga ruxsat bering yoki GitHub Token (PAT) kiriting.",
+                  { duration: 6000 }
+                );
+                return;
               } else {
                 if (signErr.code === 'auth/popup-closed-by-user' || linkErr.code === 'auth/popup-closed-by-user') {
                   toast.info("GitHub ulanish oynasi yopildi.");
@@ -136,6 +148,12 @@ export const Dashboard: React.FC = () => {
           const credFromSignErr = GithubAuthProvider.credentialFromError(signErr);
           if (credFromSignErr?.accessToken) {
             token = credFromSignErr.accessToken;
+          } else if (signErr.code === 'auth/popup-blocked' || signErr.code === 'auth/cancelled-popup-request') {
+            toast.warning(
+              "Brauzer oynasi bloklandi. Iltimos brauzer sozlamalaridan ruxsat bering yoki GitHub Token (PAT) kiriting.",
+              { duration: 6000 }
+            );
+            return;
           } else {
             if (signErr.code === 'auth/popup-closed-by-user') {
               toast.info("GitHub ulanish oynasi yopildi.");
@@ -152,11 +170,15 @@ export const Dashboard: React.FC = () => {
         toast.success("GitHub hisobingiz ulandi! Repozitoriyalaringiz yuklanmoqda...");
         fetchUserRepos(token);
       } else {
-        toast.info("GitHub muvaffaqiyatli ulandi. Repozitoriyalar uchun token olinganligini tekshiring.");
+        toast.info("GitHub hisobingiz ulandi. Shaxsiy repozitoriyalar uchun quyidagi maydonga GitHub Token (PAT) kiritishingiz mumkin.");
       }
     } catch (err: any) {
       console.error("GitHub connect error:", err);
-      toast.error("GitHub ulanishida xatolik: " + (err.message || err));
+      if (err.code === 'auth/popup-blocked') {
+        toast.warning("Brauzeringiz yangi oynani (popup) blokladi. Qalqib chiquvchi oynalarga ruxsat bering yoki GitHub tokenni qo'lda kiriting.");
+      } else {
+        toast.error("GitHub ulanishida xatolik: " + (err.message || err));
+      }
     }
   };
 
@@ -1152,10 +1174,20 @@ export const Dashboard: React.FC = () => {
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-[11px] text-muted-foreground">GitHub Access Token (PAT):</label>
+                      <div className="flex items-center justify-between text-[11px]">
+                        <label className="text-muted-foreground font-medium">GitHub Access Token (PAT):</label>
+                        <a
+                          href="https://github.com/settings/tokens/new?scopes=repo,read:user&description=Botly+Platform"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1"
+                        >
+                          Token olish (1 klik) <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </div>
                       <Input
                         type="password"
-                        placeholder="ghp_... yoki github_pat_... (avtomatik olinadi)"
+                        placeholder="ghp_... yoki github_pat_... (avtomatik olinadi yoki qo'lda kiriting)"
                         value={githubToken}
                         onChange={e => {
                           setGithubToken(e.target.value);
@@ -1163,8 +1195,11 @@ export const Dashboard: React.FC = () => {
                             fetchUserRepos(e.target.value);
                           }
                         }}
-                        className="h-8 text-xs font-mono bg-zinc-950/50"
+                        className="h-8 text-xs font-mono bg-zinc-950/50 border-zinc-800 focus:border-indigo-500"
                       />
+                      <p className="text-[10px] text-zinc-400">
+                        💡 Agar popup oynasi bloklansa, yuqoridagi <b>Token olish</b> havolasidan GitHub tokenni olib shu yerga qo'yishingiz mumkin.
+                      </p>
                     </div>
                   </div>
 

@@ -349,8 +349,6 @@
     // Strip @property which breaks older browser parsers
     res = res.replace(/@property\s+--tw-[^{]+{[^}]+}/g, '');
 
-    if (res.indexOf('@layer') === -1) return res;
-
     let output = '';
     let i = 0;
     const n = res.length;
@@ -393,6 +391,20 @@
       output += res[i];
       i++;
     }
+
+    // Resolve calc(var(--spacing) * <N>) for older mobile browsers
+    output = output.replace(/calc\(var\(--spacing\)\s*\*\s*([0-9.]+)\)/g, (_m, num) => {
+      const px = Math.round(parseFloat(num) * 4 * 100) / 100;
+      return px + 'px';
+    });
+    output = output.replace(/var\(--spacing\)/g, '4px');
+
+    // Expand logical padding/margin
+    output = output.replace(/padding-inline:([^;}]+)/g, 'padding-left:$1;padding-right:$1;padding-inline:$1');
+    output = output.replace(/margin-inline:([^;}]+)/g, 'margin-left:$1;margin-right:$1;margin-inline:$1');
+    output = output.replace(/padding-block:([^;}]+)/g, 'padding-top:$1;padding-bottom:$1;padding-block:$1');
+    output = output.replace(/margin-block:([^;}]+)/g, 'margin-top:$1;margin-bottom:$1;margin-block:$1');
+
     return output;
   };
 
