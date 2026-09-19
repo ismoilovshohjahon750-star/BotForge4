@@ -2229,6 +2229,22 @@ async function startBot(botId: string) {
                     continue;
                 }
 
+                // Check for Database Connection Errors (PostgreSQL / MySQL / Redis 127.0.0.1 ConnectionRefusedError)
+                if (
+                    (line.includes('Connect call failed') && (line.includes('5432') || line.includes('3306') || line.includes('6379'))) ||
+                    (line.includes('ConnectionRefusedError') && (line.includes('5432') || line.includes('3306') || line.includes('127.0.0.1'))) ||
+                    line.includes('TargetServerAttributeNotMatched') ||
+                    line.includes('asyncpg.exceptions.CannotConnectNowError') ||
+                    line.includes('psycopg2.OperationalError') ||
+                    line.includes('could not connect to server: Connection refused') ||
+                    (line.includes('ECONNREFUSED') && (line.includes('5432') || line.includes('3306') || line.includes('6379')))
+                ) {
+                    addBotLog(botId, 'run', `🚨 MA'LUMOTLAR BAZASI ULASH XATOSI (Database Connection Refused): ${line}`);
+                    addBotLog(botId, 'system', `💡 Sabab: Kodingiz mahalliy (127.0.0.1:5432 / 3306) PostgreSQL yoki MySQL bazasiga ulanishga urinmoqda. Bulutli muhitda lokal PostgreSQL xizmati mavjud emas.`);
+                    addBotLog(botId, 'system', `🛠️ Yechim: 1) Kodingizda PostgreSQL o'rniga SQLite (masalan: sqlite3 yoki 'sqlite:///bot_database.db') dan foydalaning — u faylda saqlanadi va qo'shimcha server talab qilmaydi. 2) Yoki Neon.tech / Supabase kabi bepul bulutli PostgreSQL ma'lumotlar bazasi URL manzilini .env (DATABASE_URL) ga kiriting. 3) 'Xatoliklarni tuzatish' (Botly AI) tugmasini bossangiz, AI avtomatik SQLite'ga o'tkazib beradi.`);
+                    continue;
+                }
+
                 // Check for Module Not Found in Node.js or Python
                 if (line.includes('Cannot find module') || line.includes('ModuleNotFoundError:') || line.includes('ImportError:')) {
                     addBotLog(botId, 'run', `🚨 ${line}`);
@@ -7273,8 +7289,9 @@ Vazifangiz:
 1. Taqdim etilgan so'nggi loglar va bot kodidagi barcha xatoliklarni (SyntaxError, IndentationError, NameError, ImportError, TypeError, Telegram API xatoliklari, token/konfiguratsiya xatoliklari, unclosed quotes, async/await xatolari va h.k.) aniqlang.
 2. MUHIM: FAQAT va FAQAT XATOSI BOR yoki TUZATILISHI SHART BO'LGAN fayllarni "fixedFiles" massivida qaytaring! O'zgarmaydigan, to'g'ri ishlayotgan fayllarni "fixedFiles" massiviga QO'SHMANG. Bu katta loyihalarda javob qisqarib ketishining oldini oladi.
 3. KATTA FAYLLAR UCHUN O'TA MUHIM QAIDA: Hech qachon kodni "# ... rest of code unchanged", "# ... (eski kod qoladi)", "// ... rest of code" yoki "..." deb qisqartirmang! "fixedFiles" ichidagi har bir fayl kodi 100% to'liq, mukammal va sintaktik to'g'ri ishchi kod bo'lishi shart.
-4. Agar yangi kutubxona kerak bo'lsa requirements.txt yoki package.json ga ham qo'shing.
-5. Python-Telegram-Bot, Aiogram, Pyrogram, Telegraf yoki GrammY botlarida xatoliklarni ushlovchi global error handlerlarni xavfsiz integratsiya qiling.
+4. MA'LUMOTLAR BAZASI VA CONNECTION REFUSED XATOLARI (PostgreSQL / MySQL / Redis): Agar loglarda "Connect call failed ('127.0.0.1', 5432)" yoki "ConnectionRefusedError" yoki "asyncpg.exceptions" yoki "psycopg2" xatosi bo'lsa: Bulutli muhitda lokal PostgreSQL (127.0.0.1:5432) mavjud emas! Bunday holatda kodni zudlik bilan avtonom, mustaqil va ishonchli SQLite (masalan: sqlite3, aiosqlite yoki 'sqlite+aiosqlite:///bot.db' yoki sqlite3 fayli) ga moslab to'liq qayta yozing va xatolikni bartaraf eting.
+5. Agar yangi kutubxona kerak bo'lsa requirements.txt yoki package.json ga ham qo'shing.
+6. Python-Telegram-Bot, Aiogram, Pyrogram, Telegraf yoki GrammY botlarida xatoliklarni ushlovchi global error handlerlarni xavfsiz integratsiya qiling.
 
 Javobni FAQAT ushbu formatdagi JSON ko'rinishida bering:
 {

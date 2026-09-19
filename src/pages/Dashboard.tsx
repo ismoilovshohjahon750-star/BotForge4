@@ -99,7 +99,6 @@ export const Dashboard: React.FC = () => {
             token = cred.accessToken;
           }
         } catch (linkErr: any) {
-          console.log("linkWithPopup info:", linkErr);
           const credFromErr = GithubAuthProvider.credentialFromError(linkErr);
           if (credFromErr?.accessToken) {
             token = credFromErr.accessToken;
@@ -108,6 +107,15 @@ export const Dashboard: React.FC = () => {
               "Brauzeringizda qalqib chiquvchi oyna (popup) bloklandi. Iltimos brauzer ruxsatini bering yoki quyidagi maydonga GitHub Personal Access Token (PAT) kiriting.",
               { duration: 6000 }
             );
+            return;
+          } else if (linkErr.code === 'auth/operation-not-allowed') {
+            toast.info(
+              "Firebase da GitHub OAuth sozlanmagan. Iltimos, 'GitHub Token Olish' tugmasidan token oling va pastdagi maydonga kiriting.",
+              { duration: 6000 }
+            );
+            return;
+          } else if (linkErr.code === 'auth/popup-closed-by-user') {
+            toast.info("GitHub ulanish oynasi yopildi.");
             return;
           } else {
             // Fallback to signInWithPopup
@@ -127,12 +135,19 @@ export const Dashboard: React.FC = () => {
                   { duration: 6000 }
                 );
                 return;
+              } else if (signErr.code === 'auth/operation-not-allowed') {
+                toast.info(
+                  "Firebase da GitHub OAuth sozlanmagan. Iltimos, 'GitHub Token Olish' tugmasidan token oling va pastdagi maydonga kiriting.",
+                  { duration: 6000 }
+                );
+                return;
               } else {
-                if (signErr.code === 'auth/popup-closed-by-user' || linkErr.code === 'auth/popup-closed-by-user') {
+                if (signErr.code === 'auth/popup-closed-by-user') {
                   toast.info("GitHub ulanish oynasi yopildi.");
                   return;
                 }
-                throw signErr;
+                toast.error("GitHub ulanishida xatolik: " + (signErr.message || signErr));
+                return;
               }
             }
           }
@@ -154,12 +169,19 @@ export const Dashboard: React.FC = () => {
               { duration: 6000 }
             );
             return;
+          } else if (signErr.code === 'auth/operation-not-allowed') {
+            toast.info(
+              "Firebase da GitHub OAuth sozlanmagan. Iltimos, 'GitHub Token Olish' tugmasidan token oling va pastdagi maydonga kiriting.",
+              { duration: 6000 }
+            );
+            return;
           } else {
             if (signErr.code === 'auth/popup-closed-by-user') {
               toast.info("GitHub ulanish oynasi yopildi.");
               return;
             }
-            throw signErr;
+            toast.error("GitHub ulanishida xatolik: " + (signErr.message || signErr));
+            return;
           }
         }
       }
@@ -173,9 +195,13 @@ export const Dashboard: React.FC = () => {
         toast.info("GitHub hisobingiz ulandi. Shaxsiy repozitoriyalar uchun quyidagi maydonga GitHub Token (PAT) kiritishingiz mumkin.");
       }
     } catch (err: any) {
-      console.error("GitHub connect error:", err);
       if (err.code === 'auth/popup-blocked') {
         toast.warning("Brauzeringiz yangi oynani (popup) blokladi. Qalqib chiquvchi oynalarga ruxsat bering yoki GitHub tokenni qo'lda kiriting.");
+      } else if (err.code === 'auth/operation-not-allowed') {
+        toast.info(
+          "Firebase da GitHub OAuth sozlanmagan. Iltimos, 'GitHub Token Olish' tugmasidan token oling va pastdagi maydonga kiriting.",
+          { duration: 7000 }
+        );
       } else {
         toast.error("GitHub ulanishida xatolik: " + (err.message || err));
       }
@@ -1137,57 +1163,47 @@ export const Dashboard: React.FC = () => {
               </TabsContent>
               <TabsContent value="github" className="pt-4 space-y-4">
                 <form onSubmit={handleGithubImport} className="space-y-4">
-                  {/* GitHub Auth / Private repo access header */}
+                  {/* GitHub Token / Private repo access header */}
                   <div className="p-3.5 rounded-xl bg-zinc-900/80 border border-zinc-800 space-y-3">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
-                        <Github className="w-4.5 h-4.5 text-indigo-400" />
-                        <span className="text-xs font-semibold text-zinc-200">GitHub Hisobni Ulash & Private Repozitoriyalar</span>
+                        <Github className="w-4 h-4 text-indigo-400 shrink-0" />
+                        <span className="text-xs font-semibold text-zinc-200">GitHub Token orqali import</span>
                       </div>
-                      {githubToken ? (
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-mono font-medium">
-                            ✓ Ulangan
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => fetchUserRepos()}
-                            disabled={loadingRepos}
-                            className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
-                            title="Repozitoriyalarni yangilash"
-                          >
-                            <RefreshCcw className={`w-3.5 h-3.5 ${loadingRepos ? 'animate-spin text-primary' : ''}`} />
-                          </button>
-                        </div>
-                      ) : (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={handleConnectGithub}
-                          className="h-7 text-xs bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border-indigo-500/30 gap-1.5 cursor-pointer"
-                        >
-                          <Github className="w-3.5 h-3.5" />
-                          GitHub orqali ulanish
-                        </Button>
-                      )}
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between text-[11px]">
-                        <label className="text-muted-foreground font-medium">GitHub Access Token (PAT):</label>
+                      <div className="flex items-center gap-2">
+                        {githubToken ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-mono font-medium">
+                              ✓ Ulangan
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => fetchUserRepos()}
+                              disabled={loadingRepos}
+                              className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
+                              title="Repozitoriyalarni yangilash"
+                            >
+                              <RefreshCcw className={`w-3.5 h-3.5 ${loadingRepos ? 'animate-spin text-primary' : ''}`} />
+                            </button>
+                          </div>
+                        ) : null}
                         <a
                           href="https://github.com/settings/tokens/new?scopes=repo,read:user&description=Botly+Platform"
                           target="_blank"
                           rel="noreferrer"
-                          className="text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1"
+                          className="inline-flex items-center gap-1 h-6 px-2 rounded-md text-[11px] font-medium bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 border border-indigo-500/40 transition-colors shrink-0"
                         >
-                          Token olish (1 klik) <ExternalLink className="w-3 h-3" />
+                          Token olish (1 klik)
+                          <ExternalLink className="w-2.5 h-2.5 opacity-70" />
                         </a>
                       </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] text-muted-foreground font-medium">GitHub Personal Access Token (PAT):</label>
                       <Input
                         type="password"
-                        placeholder="ghp_... yoki github_pat_... (avtomatik olinadi yoki qo'lda kiriting)"
+                        placeholder="ghp_... yoki github_pat_..."
                         value={githubToken}
                         onChange={e => {
                           setGithubToken(e.target.value);
@@ -1198,7 +1214,7 @@ export const Dashboard: React.FC = () => {
                         className="h-8 text-xs font-mono bg-zinc-950/50 border-zinc-800 focus:border-indigo-500"
                       />
                       <p className="text-[10px] text-zinc-400">
-                        💡 Agar popup oynasi bloklansa, yuqoridagi <b>Token olish</b> havolasidan GitHub tokenni olib shu yerga qo'yishingiz mumkin.
+                        🔑 Shaxsiy (private) va ommaviy repozitoriyalarni yuklash uchun yuqoridagi <b>Token olish</b> orqali olingan tokenni kiriting.
                       </p>
                     </div>
                   </div>

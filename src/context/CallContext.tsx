@@ -3,9 +3,9 @@ import { useAuth } from '../hooks/useAuth';
 import { db } from '../lib/firebase';
 import { 
   collection, doc, onSnapshot, query, where, 
-  serverTimestamp, getDoc, updateDoc, setDoc 
+  serverTimestamp, updateDoc, setDoc 
 } from 'firebase/firestore';
-import { safeSetDoc, safeUpdateDoc, safeAddDoc } from '../lib/safeFirestore';
+import { safeSetDoc, safeUpdateDoc, safeAddDoc, safeGetDoc } from '../lib/safeFirestore';
 import { toast } from 'sonner';
 import { 
   Phone, PhoneOff, PhoneCall, PhoneIncoming, Mic, MicOff, 
@@ -389,8 +389,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Read offer directly or listen via snapshot
       const offerDocRef = doc(db, 'active_calls', callId, 'webrtc', 'offer');
-      const offerSnap = await getDoc(offerDocRef);
-      if (offerSnap.exists()) {
+      const offerSnap = await safeGetDoc(offerDocRef);
+      if (offerSnap && offerSnap.exists()) {
         await processOffer(offerSnap.data());
       } else {
         const unsubOffer = onSnapshot(offerDocRef, (snap) => {
@@ -666,8 +666,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!chatId || !user) return;
     try {
       const msgRef = doc(db, 'contact_messages', chatId);
-      const msgSnap = await getDoc(msgRef);
-      if (msgSnap.exists()) {
+      const msgSnap = await safeGetDoc(msgRef);
+      if (msgSnap && msgSnap.exists()) {
         const data = msgSnap.data();
         const existingReplies = data.replies || [];
         const callReply = {

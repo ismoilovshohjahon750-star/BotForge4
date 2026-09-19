@@ -5,7 +5,7 @@ import { Zap, Shield, Terminal, Cpu, Send, ExternalLink } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '../context/LanguageContext';
-import { CustomerReviews } from '../components/CustomerReviews';
+import { TechLeadersQuotes } from '../components/TechLeadersQuotes';
 
 export const Landing: React.FC = () => {
   const { user } = useAuth();
@@ -120,8 +120,8 @@ export const Landing: React.FC = () => {
         </div>
       </section>
 
-      {/* Customer Reviews Section */}
-      <CustomerReviews />
+      {/* Tech Leaders Quotes & Wisdom Section (replaces customer reviews on landing) */}
+      <TechLeadersQuotes />
 
       {/* Admin Telegram Direct Support CTA */}
       <section className="py-16 px-4">

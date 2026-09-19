@@ -10,8 +10,8 @@ import {
   GoogleAuthProvider 
 } from 'firebase/auth';
 import { auth, googleProvider } from '../lib/firebase';
-import { doc, getDoc, serverTimestamp } from 'firebase/firestore';
-import { safeSetDoc } from '../lib/safeFirestore';
+import { doc, serverTimestamp } from 'firebase/firestore';
+import { safeSetDoc, safeGetDoc } from '../lib/safeFirestore';
 import { db } from '../lib/firebase';
 import { handleFirestoreError, OperationType } from '../lib/firestore-utils';
 
@@ -74,8 +74,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
             if (user.email !== 'ismoilovshohjahon750@gmail.com') {
               const roleRef = doc(db, 'user_roles', user.uid);
-              const roleSnap = await getDoc(roleRef);
-              if (roleSnap.exists() && roleSnap.data().role === 'admin') {
+              const roleSnap = await safeGetDoc(roleRef);
+              if (roleSnap && roleSnap.exists() && roleSnap.data().role === 'admin') {
                 setIsAdmin(true);
               }
             }

@@ -1,14 +1,36 @@
-import { setDoc, addDoc, updateDoc, deleteDoc, doc, collection, DocumentReference, CollectionReference, UpdateData, disableNetwork } from 'firebase/firestore';
+import { setDoc, addDoc, updateDoc, deleteDoc, getDoc, doc, collection, DocumentReference, CollectionReference, UpdateData, disableNetwork, DocumentSnapshot } from 'firebase/firestore';
 import { db, secondaryDb } from './firebase';
 
 let primaryQuotaExhausted = false;
 
-const withTimeout = <T>(promise: Promise<T>, timeoutMs = 2000): Promise<T> => {
+const withTimeout = <T>(promise: Promise<T>, timeoutMs = 2500): Promise<T> => {
   return Promise.race([
     promise,
     new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Firestore operation timed out')), timeoutMs))
   ]);
 };
+
+export async function safeGetDoc(docRef: DocumentReference): Promise<DocumentSnapshot | null> {
+  try {
+    const snap = await withTimeout(getDoc(docRef), 2500);
+    return snap;
+  } catch (err: any) {
+    if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota limit exceeded')) {
+      markPrimaryQuotaExhausted();
+    }
+    // Attempt secondaryDb fallback if path exists
+    if (secondaryDb && docRef?.path) {
+      try {
+        const secDocRef = doc(secondaryDb, docRef.path);
+        const secSnap = await withTimeout(getDoc(secDocRef), 2000);
+        if (secSnap.exists()) {
+          return secSnap;
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+}
 
 export function markPrimaryQuotaExhausted() {
   primaryQuotaExhausted = true;

@@ -39,12 +39,16 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   if (
     errCode === 'resource-exhausted' ||
     errCode === 8 ||
+    errCode === 'unavailable' ||
+    errCode === 14 ||
     errMsg.includes('resource-exhausted') ||
     errMsg.includes('Quota limit exceeded') ||
-    errMsg.includes('RESOURCE_EXHAUSTED')
+    errMsg.includes('RESOURCE_EXHAUSTED') ||
+    errMsg.includes('unavailable') ||
+    errMsg.includes('Could not reach Cloud Firestore backend')
   ) {
     isQuotaExhaustedFlag = true;
-    console.warn(`[Firestore Quota Notice]: Free daily quota reached for path '${path || 'database'}'. Operating via fallback/secondary storage.`);
+    console.warn(`[Firestore Notice]: Backend is temporarily unavailable or offline for '${path || 'database'}'. Operating in offline fallback mode.`);
     return;
   }
 

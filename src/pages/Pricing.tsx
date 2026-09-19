@@ -24,11 +24,13 @@ import {
   Cpu
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { safeGetDoc } from '../lib/safeFirestore';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from '../context/LanguageContext';
+import { CustomerReviews } from '../components/CustomerReviews';
 
 interface Plan {
   id: 'free' | 'pro' | 'vip';
@@ -148,8 +150,8 @@ export const Pricing: React.FC = () => {
       if (user.displayName && !name) setName(user.displayName);
       const loadProfile = async () => {
         try {
-          const profileDoc = await getDoc(doc(db, 'profiles', user.uid));
-          if (profileDoc.exists()) {
+          const profileDoc = await safeGetDoc(doc(db, 'profiles', user.uid));
+          if (profileDoc && profileDoc.exists()) {
             const data = profileDoc.data();
             if (data.tier) setUserTier(data.tier.toLowerCase());
           }
@@ -453,6 +455,11 @@ export const Pricing: React.FC = () => {
             );
           })}
         </div>
+      </div>
+
+      {/* Real Customer Reviews Section on Pricing Page */}
+      <div className="mt-20">
+        <CustomerReviews />
       </div>
 
       {/* Direct Telegram Support Banner */}

@@ -10,6 +10,7 @@ import {
   sendPasswordResetEmail,
   signInWithPopup,
   signInWithRedirect,
+  getRedirectResult,
   signInWithCredential,
   GoogleAuthProvider,
   getAdditionalUserInfo
@@ -68,6 +69,34 @@ export const Auth: React.FC = () => {
   const [sentEmailAddress, setSentEmailAddress] = useState<string>('');
   const [resendCooldown, setResendCooldown] = useState<number>(0);
 
+  // Check redirect result on mount (for mobile and older browsers redirect fallback)
+  useEffect(() => {
+    let isMounted = true;
+    (async () => {
+      try {
+        const redirectRes = await getRedirectResult(auth);
+        if (redirectRes && redirectRes.user && isMounted) {
+          if (getAdditionalUserInfo(redirectRes)?.isNewUser) {
+            try {
+              localStorage.setItem('botly_trigger_signup_feedback', 'true');
+              if (redirectRes.user.uid) {
+                localStorage.setItem(`botly_new_signup_${redirectRes.user.uid}`, 'true');
+              }
+            } catch (_) {}
+          }
+          toast.success("Google orqali muvaffaqiyatli kirdingiz!");
+          navigate('/dashboard');
+        }
+      } catch (err: any) {
+        console.warn("[Auth redirect check error]:", err);
+        if (err.code && err.code !== 'auth/null-user') {
+          toast.error("Kirishda xatolik: " + (err.message || err.code));
+        }
+      }
+    })();
+    return () => { isMounted = false; };
+  }, [navigate]);
+
   // Handle Google OAuth
   const handleGoogleLogin = async () => {
     if (loading) return;
@@ -75,21 +104,33 @@ export const Auth: React.FC = () => {
       setLoading(true);
       const res = await signInWithPopup(auth, googleProvider);
       if (getAdditionalUserInfo(res)?.isNewUser) {
-        localStorage.setItem('botly_trigger_signup_feedback', 'true');
-        if (res.user?.uid) {
-          localStorage.setItem(`botly_new_signup_${res.user.uid}`, 'true');
-        }
+        try {
+          localStorage.setItem('botly_trigger_signup_feedback', 'true');
+          if (res.user?.uid) {
+            localStorage.setItem(`botly_new_signup_${res.user.uid}`, 'true');
+          }
+        } catch (_) {}
       }
       toast.success("Google orqali muvaffaqiyatli kirdingiz!");
       navigate('/dashboard');
     } catch (error: any) {
-      if (error.code === 'auth/popup-blocked' || error.code === 'auth/cancelled-popup-request') {
+      console.warn("[Google Login Error]:", error?.code, error?.message);
+      // Older browsers, blocked cookies, in-app webviews, or strict popup blocker
+      if (
+        error.code === 'auth/popup-blocked' || 
+        error.code === 'auth/cancelled-popup-request' ||
+        error.code === 'auth/operation-not-supported-in-this-environment' ||
+        error.code === 'auth/web-storage-unsupported' ||
+        error.code === 'auth/auth-domain-config-required' ||
+        error.message?.toLowerCase().includes('popup')
+      ) {
         try {
-          toast.info("Oyna bloklangani sababli yo'naltirilmoqda...");
+          toast.info("Oyna ochilmadi, to'g'ridan-to'g'ri kirish sahifasiga yo'naltirilmoqda...");
           await signInWithRedirect(auth, googleProvider);
           return;
-        } catch (redirErr) {
-          toast.error("Oyna bloklangan. Iltimos Email va Parol orqali kiring.");
+        } catch (redirErr: any) {
+          console.error("signInWithRedirect failed:", redirErr);
+          toast.error("Google orqali ulanish imkoni bo'lmadi. Iltimos Email va Parolingiz orqali kiring.");
         }
       } else if (error.code === 'auth/popup-closed-by-user') {
         // User closed popup
@@ -97,6 +138,8 @@ export const Auth: React.FC = () => {
         toast.error("Ushbu email manzili allaqachon boshqa kirish usuli bilan ro'yxatdan o'tkazilgan. Iltimos o'sha usuldan foydalanib kiring.");
       } else if (error.code === 'auth/user-disabled') {
         toast.error("Ushbu hisob admin tomonidan cheklangan. Iltimos qo'llab-quvvatlash xizmatiga murojaat qiling.");
+      } else if (error.code === 'auth/network-request-failed') {
+        toast.error("Internet ulanishi yoki tarmoq xatosi. Iltimos aloqani tekshiring.");
       } else {
         toast.error("Google orqali kirishda xatolik yuz berdi: " + (error.message || 'Xatolik'));
       }
@@ -151,6 +194,7 @@ export const Auth: React.FC = () => {
         }
         toast.success("Hisobingiz muvaffaqiyatli yaratildi! Tasdiqlash havolasi emailingizga yuborildi.");
       } catch (error: any) {
+        console.warn("[Email Sign-up Error]:", error?.code, error?.message);
         if (error.code === 'auth/email-already-in-use') {
           setIsSignUp(false);
           toast.error("Ushbu email allaqachon ro'yxatdan o'tgan! Kirish oynasiga o'tkazildingiz. Parolingizni kiriting yoki 'Parolni unutdingizmi?' orqali tiklang.");
@@ -160,6 +204,10 @@ export const Auth: React.FC = () => {
           toast.error("Email manzili noto'g'ri kiritilgan!");
         } else if (error.code === 'auth/weak-password') {
           toast.error("Parol juda oddiy! Kamida 6 ta belgidan iborat kuchliroq parol kiriting.");
+        } else if (error.code === 'auth/network-request-failed') {
+          toast.error("Tarmoq xatosi: Server bilan ulanish mavjud emas. Internet aloqangizni tekshiring.");
+        } else if (error.code === 'auth/web-storage-unsupported') {
+          toast.error("Brauzeringiz cookie yoki mahalliy xotira (localStorage) ni bloklagan. Iltimos cookie-fayllarga ruxsat bering.");
         } else {
           toast.error("Xatolik: " + (error.message || "Ro'yxatdan o'tishda xatolik yuz berdi"));
         }
@@ -179,6 +227,7 @@ export const Auth: React.FC = () => {
         }
         window.location.href = '/dashboard';
       } catch (error: any) {
+        console.warn("[Email Sign-in Error]:", error?.code, error?.message);
         if (error.code === 'auth/user-disabled') {
           toast.error("Ushbu hisob admin tomonidan cheklangan. Iltimos qo'llab-quvvatlash xizmatiga murojaat qiling.");
         } else if (
@@ -192,6 +241,10 @@ export const Auth: React.FC = () => {
           toast.error("Email manzili noto'g'ri kiritilgan!");
         } else if (error.code === 'auth/too-many-requests') {
           toast.error("Bir necha marta xato urinish bo'ldi. Iltimos birozdan so'ng qayta urinib ko'ring yoki 'Parolni unutdingizmi?' orqali yangilang.");
+        } else if (error.code === 'auth/network-request-failed') {
+          toast.error("Tarmoq xatosi: Server bilan ulanish mavjud emas. Internet aloqangizni tekshiring.");
+        } else if (error.code === 'auth/web-storage-unsupported') {
+          toast.error("Brauzeringiz cookie yoki mahalliy xotira (localStorage) ni bloklagan. Iltimos cookie-fayllarga ruxsat bering.");
         } else {
           toast.error("Kirishda xatolik: " + (error.message || "Xatolik yuz berdi"));
         }

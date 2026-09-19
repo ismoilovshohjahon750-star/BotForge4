@@ -19,14 +19,68 @@
     <link rel="stylesheet" href="/src/index.css" />
     <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9609197230968802" crossorigin="anonymous"></script>
     <script>
-      // Cleanly handle benign iframe WebSocket notices when HMR is disabled
+      // Cleanly handle benign iframe WebSocket notices and Firestore transient offline/unavailable messages
       window.addEventListener('unhandledrejection', function(event) {
         var reason = event && (event.reason ? (event.reason.message || event.reason + '') : '');
-        if (typeof reason === 'string' && /websocket|ws:/i.test(reason)) {
+        if (typeof reason === 'string' && (/websocket|ws:/i.test(reason) || /Could not reach Cloud Firestore backend|code=unavailable/i.test(reason))) {
           event.preventDefault();
           if (event.stopImmediatePropagation) event.stopImmediatePropagation();
         }
       }, true);
+
+      // Handle benign console warnings for transient Firestore offline/unavailable state
+      (function() {
+        var originalWarn = console.warn;
+        var originalError = console.error;
+        var isBenignFirestoreNotice = function(args) {
+          for (var i = 0; i < args.length; i++) {
+            var str = typeof args[i] === 'string' ? args[i] : (args[i] && args[i].message ? args[i].message : '');
+            if (str && (/Could not reach Cloud Firestore backend/i.test(str) || /operate in offline mode until it is able to successfully connect/i.test(str))) {
+              return true;
+            }
+          }
+          return false;
+        };
+
+        console.warn = function() {
+          if (isBenignFirestoreNotice(arguments)) return;
+          return originalWarn.apply(console, arguments);
+        };
+        console.error = function() {
+          if (isBenignFirestoreNotice(arguments)) {
+            // Downgrade to subtle notice without triggering error trackers
+            return;
+          }
+          return originalError.apply(console, arguments);
+        };
+      })();
+
+      // Safe memory fallback for localStorage/sessionStorage when disabled or restricted in older browsers/private mode
+      (function() {
+        try {
+          var testKey = '__test_storage__';
+          window.localStorage.setItem(testKey, '1');
+          window.localStorage.removeItem(testKey);
+        } catch (e) {
+          console.warn('localStorage is restricted or unavailable, installing memory fallback');
+          var memStore = {};
+          var dummyStorage = {
+            getItem: function(k) { return memStore.hasOwnProperty(k) ? memStore[k] : null; },
+            setItem: function(k, v) { memStore[k] = String(v); },
+            removeItem: function(k) { delete memStore[k]; },
+            clear: function() { memStore = {}; },
+            get length() { return Object.keys(memStore).length; },
+            key: function(i) { return Object.keys(memStore)[i] || null; }
+          };
+          try {
+            Object.defineProperty(window, 'localStorage', { value: dummyStorage, configurable: true, writable: true });
+          } catch (_) {}
+        }
+        // Global object safety for older engines
+        if (typeof globalThis === 'undefined') {
+          window.globalThis = window;
+        }
+      })();
     </script>
     <style>
       *, ::before, ::after {

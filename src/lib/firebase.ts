@@ -1,5 +1,16 @@
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, GithubAuthProvider, browserLocalPersistence, inMemoryPersistence, setPersistence } from 'firebase/auth';
+import { 
+  initializeAuth,
+  getAuth,
+  GoogleAuthProvider, 
+  GithubAuthProvider, 
+  browserLocalPersistence, 
+  browserSessionPersistence,
+  indexedDBLocalPersistence,
+  inMemoryPersistence, 
+  setPersistence,
+  Auth
+} from 'firebase/auth';
 import { initializeFirestore, Firestore } from 'firebase/firestore';
 import primaryConfig from '../../firebase-applet-config.json';
 
@@ -51,11 +62,29 @@ try {
 }
 export const secondaryDb: Firestore = secDbInstance;
 
-// Authentication (To'liq eski/asosiy loyihadan foydalanadi: Google, Github, Email)
-export const auth = getAuth(originalApp);
-setPersistence(auth, browserLocalPersistence).catch(() => {
-  setPersistence(auth, inMemoryPersistence).catch(() => {});
-});
+// Authentication with comprehensive fallback persistence for older browsers, private mode & WebViews
+let authInstance: Auth;
+try {
+  // initializeAuth allows specifying an ordered list of persistence mechanisms
+  // so if indexedDB fails or localStorage is blocked in older browsers, it gracefully falls back
+  authInstance = initializeAuth(originalApp, {
+    persistence: [
+      indexedDBLocalPersistence,
+      browserLocalPersistence,
+      browserSessionPersistence,
+      inMemoryPersistence
+    ]
+  });
+} catch {
+  // If already initialized or fallback needed
+  authInstance = getAuth(originalApp);
+  setPersistence(authInstance, browserLocalPersistence)
+    .catch(() => setPersistence(authInstance, browserSessionPersistence))
+    .catch(() => setPersistence(authInstance, inMemoryPersistence))
+    .catch(() => {});
+}
+
+export const auth = authInstance;
 
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.addScope('email');
