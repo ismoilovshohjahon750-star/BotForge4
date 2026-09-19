@@ -7,6 +7,7 @@ import elonMuskImg from '../assets/images/elon_musk_avatar_1789832994207.jpg';
 import billGatesImg from '../assets/images/bill_gates_avatar_1789833008323.jpg';
 import markZuckImg from '../assets/images/zuck_bezos_avatar_1789833033848.jpg';
 import jeffBezosImg from '../assets/images/jeff_bezos_avatar_1789833051054.jpg';
+import samAltmanImg from '../assets/images/sam_altman_avatar_1789836091206.jpg';
 
 export interface LeaderQuote {
   id: string;
@@ -21,6 +22,17 @@ export interface LeaderQuote {
 }
 
 export const LEADER_QUOTES: LeaderQuote[] = [
+  {
+    id: 'sam-altman',
+    name: 'Sam Altman',
+    role: 'OpenAI asoschisi & CEO',
+    quote: '“Sun\'iy intellekt insoniyat yaratgan eng qudratli texnologiya bo\'ladi.”',
+    badge: 'Sun\'iy Intellekt & Kelajak',
+    gradient: 'from-emerald-600/20 via-teal-600/10 to-transparent',
+    borderAccent: 'border-emerald-500/40 hover:border-emerald-400',
+    avatarBg: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+    image: samAltmanImg,
+  },
   {
     id: 'steve-jobs',
     name: 'Steve Jobs',
