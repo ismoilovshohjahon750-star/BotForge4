@@ -143,11 +143,35 @@
           Iltimos kuting, xizmatlar ishga tushirilmoqda...
         </p>
         <div id="loader-actions" style="display: none; margin-top: 10px;">
-          <button onclick="window.location.reload(true)" style="background: #22c55e; color: #000; font-weight: 600; padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px;">Qayta yuklash</button>
+          <button onclick="refreshApp()" style="background: #22c55e; color: #000; font-weight: 600; padding: 9px 18px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px;">Qayta yuklash</button>
         </div>
       </div>
     </div>
     <script>
+      function refreshApp() {
+        try {
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(regs) {
+              for (var i = 0; i < regs.length; i++) regs[i].unregister();
+            });
+          }
+        } catch (_) {}
+        var cleanUrl = window.location.origin + window.location.pathname;
+        window.location.replace(cleanUrl);
+      }
+
+      window.addEventListener('error', function(e) {
+        if (!window.__hasAppLoaded) {
+          var desc = document.getElementById('loader-desc');
+          var actions = document.getElementById('loader-actions');
+          var msg = e && (e.message || (e.error && e.error.message) || '');
+          if (msg && !/ResizeObserver|Script error/i.test(msg)) {
+            if (desc) desc.textContent = "Yuklashda uzilish yuz berdi. Sahifani qayta yuklang.";
+            if (actions) actions.style.display = 'block';
+          }
+        }
+      });
+
       setTimeout(function() {
         if (!window.__hasAppLoaded) {
           var desc = document.getElementById('loader-desc');
@@ -155,7 +179,7 @@
           if (desc) desc.textContent = "Yuklanish odatdagidan ko'proq vaqt olyapti. Internet aloqangizni tekshiring yoki sahifani yangilang.";
           if (actions) actions.style.display = 'block';
         }
-      }, 7000);
+      }, 12000);
     </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
