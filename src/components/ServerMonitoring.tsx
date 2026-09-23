@@ -347,7 +347,7 @@ export const ServerMonitoring: React.FC = () => {
   };
 
   return (
-    <Card className="border-border/80 bg-card/60 backdrop-blur-sm shadow-sm overflow-hidden" id="server-monitoring-panel">
+    <Card className="border-border/80 bg-card/60 backdrop-blur-sm shadow-sm overflow-hidden w-full min-w-0" id="server-monitoring-panel">
       <CardHeader className="pb-3 border-b border-border/40">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="space-y-1">

@@ -1127,41 +1127,43 @@ export const Admin: React.FC = () => {
       </div>
 
       {/* Tabs Section */}
-      <Tabs defaultValue="users" className="w-full">
-        <TabsList className="mb-6 p-1.5 bg-muted/60 border border-border/60 rounded-xl flex flex-wrap items-center justify-start gap-1.5 h-auto w-full max-w-full">
-          <TabsTrigger value="users" className="gap-2 rounded-lg font-semibold text-sm h-9 px-3.5">
-            <UserCheck className="w-4 h-4" />
-            {t('admin_tab_users', 'Foydalanuvchilar va Obunalar')} ({filteredProfiles.length})
+      <Tabs defaultValue="users" orientation="horizontal" className="w-full flex flex-col">
+        <TabsList className="mb-6 p-1.5 bg-muted/60 border border-border/60 rounded-xl flex items-center justify-start gap-1.5 h-auto w-full max-w-full overflow-x-auto no-scrollbar scrollbar-none shrink-0 content-start flex-nowrap sm:flex-wrap">
+          <TabsTrigger value="users" className="gap-2 rounded-lg font-semibold text-xs sm:text-sm h-9 px-3 shrink-0">
+            <UserCheck className="w-4 h-4 shrink-0" />
+            <span>{t('admin_tab_users', 'Foydalanuvchilar va Obunalar')}</span>
+            <span className="opacity-80">({filteredProfiles.length})</span>
           </TabsTrigger>
-          <TabsTrigger value="bots" className="gap-2 rounded-lg font-semibold text-sm h-9 px-3.5">
-            <Bot className="w-4 h-4" />
-            {t('admin_tab_bots', 'Botlar')} ({bots.length})
+          <TabsTrigger value="bots" className="gap-2 rounded-lg font-semibold text-xs sm:text-sm h-9 px-3 shrink-0">
+            <Bot className="w-4 h-4 shrink-0" />
+            <span>{t('admin_tab_bots', 'Botlar')}</span>
+            <span className="opacity-80">({bots.length})</span>
           </TabsTrigger>
-          <TabsTrigger value="telegram-ai" className="gap-2 rounded-lg font-semibold text-sm h-9 px-3.5">
-            <Radio className="w-4 h-4 text-sky-400" />
-            {t('admin_tab_tg_ai', '24/7 Telegram AI Yordamchi')}
+          <TabsTrigger value="telegram-ai" className="gap-2 rounded-lg font-semibold text-xs sm:text-sm h-9 px-3 shrink-0">
+            <Radio className="w-4 h-4 text-sky-400 shrink-0" />
+            <span>{t('admin_tab_tg_ai', '24/7 Telegram AI Yordamchi')}</span>
             {tgStatus?.isRunning && (
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-0.5"></span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
             )}
           </TabsTrigger>
-          <TabsTrigger value="app-api" className="gap-2 rounded-lg font-semibold text-sm h-9 px-3.5">
-            <Smartphone className="w-4 h-4 text-emerald-400" />
-            {t('admin_tab_app_api', 'Ilova API (5s Real-Time)')}
-            <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold bg-emerald-500/20 text-emerald-400 rounded-full border border-emerald-500/30">
+          <TabsTrigger value="app-api" className="gap-2 rounded-lg font-semibold text-xs sm:text-sm h-9 px-3 shrink-0">
+            <Smartphone className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{t('admin_tab_app_api', 'Ilova API (5s Real-Time)')}</span>
+            <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold bg-emerald-500/20 text-emerald-400 rounded-full border border-emerald-500/30 shrink-0">
               5s Live
             </span>
           </TabsTrigger>
-          <TabsTrigger value="external-runners" className="gap-2 rounded-lg font-semibold text-sm h-9 px-3.5">
-            <Network className="w-4 h-4 text-cyan-400" />
+          <TabsTrigger value="external-runners" className="gap-2 rounded-lg font-semibold text-xs sm:text-sm h-9 px-3 shrink-0">
+            <Network className="w-4 h-4 text-cyan-400 shrink-0" />
             <span>Load Balancer & Server Klasteri</span>
-            <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold bg-cyan-500/20 text-cyan-400 rounded-full border border-cyan-500/30">
+            <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold bg-cyan-500/20 text-cyan-400 rounded-full border border-cyan-500/30 shrink-0">
               {runners.filter(r => r.is_active).length || 1} Tugun
             </span>
           </TabsTrigger>
-          <TabsTrigger value="server-monitoring" className="gap-2 rounded-lg font-semibold text-sm h-9 px-3.5">
-            <Activity className="w-4 h-4 text-emerald-400" />
+          <TabsTrigger value="server-monitoring" className="gap-2 rounded-lg font-semibold text-xs sm:text-sm h-9 px-3 shrink-0">
+            <Activity className="w-4 h-4 text-emerald-400 shrink-0" />
             <span>Server Monitoring</span>
-            <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold bg-emerald-500/20 text-emerald-400 rounded-full border border-emerald-500/30">
+            <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold bg-emerald-500/20 text-emerald-400 rounded-full border border-emerald-500/30 shrink-0">
               CPU/RAM Live
             </span>
           </TabsTrigger>
