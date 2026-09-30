@@ -342,87 +342,83 @@
   // 19. CSS Cascade Layers (@layer) & @property Unwrapper for Legacy Browsers (Chrome < 99, Android 5/6/7 WebView, Safari < 16)
   const isLayerSupported = typeof (window as any).CSSLayerBlockRule !== 'undefined';
   
-  const unwrapCss = (css: string): string => {
-    if (!css) return css;
-    // Strip standalone layer declarations
-    let res = css.replace(/@layer\s+[^;{]+;/g, '');
-    // Strip @property which breaks older browser parsers
-    res = res.replace(/@property\s+--tw-[^{]+{[^}]+}/g, '');
+  if (!isLayerSupported) {
+    const unwrapCss = (css: string): string => {
+      if (!css) return css;
+      // Strip standalone layer declarations
+      let res = css.replace(/@layer\s+[^;{]+;/g, '');
+      // Strip @property which breaks older browser parsers
+      res = res.replace(/@property\s+--tw-[^{]+{[^}]+}/g, '');
 
-    let output = '';
-    let i = 0;
-    const n = res.length;
+      let output = '';
+      let i = 0;
+      const n = res.length;
 
-    while (i < n) {
-      if (res.startsWith('@layer', i)) {
-        const openBrace = res.indexOf('{', i);
-        if (openBrace !== -1) {
-          let depth = 1;
-          let j = openBrace + 1;
-          let insideQuote: string | null = null;
-          let escaped = false;
+      while (i < n) {
+        if (res.startsWith('@layer', i)) {
+          const openBrace = res.indexOf('{', i);
+          if (openBrace !== -1) {
+            let depth = 1;
+            let j = openBrace + 1;
+            let insideQuote: string | null = null;
+            let escaped = false;
 
-          while (j < n && depth > 0) {
-            const char = res[j];
-            if (escaped) {
-              escaped = false;
-            } else if (char === '\\') {
-              escaped = true;
-            } else if (insideQuote) {
-              if (char === insideQuote) insideQuote = null;
-            } else if (char === '"' || char === "'") {
-              insideQuote = char;
-            } else if (char === '{') {
-              depth++;
-            } else if (char === '}') {
-              depth--;
-              if (depth === 0) {
-                const inner = res.slice(openBrace + 1, j);
-                output += unwrapCss(inner);
-                i = j + 1;
-                break;
+            while (j < n && depth > 0) {
+              const char = res[j];
+              if (escaped) {
+                escaped = false;
+              } else if (char === '\\') {
+                escaped = true;
+              } else if (insideQuote) {
+                if (char === insideQuote) insideQuote = null;
+              } else if (char === '"' || char === "'") {
+                insideQuote = char;
+              } else if (char === '{') {
+                depth++;
+              } else if (char === '}') {
+                depth--;
+                if (depth === 0) {
+                  const inner = res.slice(openBrace + 1, j);
+                  output += unwrapCss(inner);
+                  i = j + 1;
+                  break;
+                }
               }
+              j++;
             }
-            j++;
+            if (depth === 0) continue;
           }
-          if (depth === 0) continue;
         }
+        output += res[i];
+        i++;
       }
-      output += res[i];
-      i++;
-    }
 
-    // Resolve calc(var(--spacing) * <N>) for older mobile browsers
-    output = output.replace(/calc\(var\(--spacing\)\s*\*\s*([0-9.]+)\)/g, (_m, num) => {
-      const px = Math.round(parseFloat(num) * 4 * 100) / 100;
-      return px + 'px';
-    });
-    output = output.replace(/var\(--spacing\)/g, '4px');
+      // Resolve calc(var(--spacing) * <N>) for older mobile browsers
+      output = output.replace(/calc\(var\(--spacing\)\s*\*\s*([0-9.]+)\)/g, (_m, num) => {
+        const px = Math.round(parseFloat(num) * 4 * 100) / 100;
+        return px + 'px';
+      });
+      output = output.replace(/var\(--spacing\)/g, '4px');
 
-    // Expand logical padding/margin
-    output = output.replace(/padding-inline:([^;}]+)/g, 'padding-left:$1;padding-right:$1;padding-inline:$1');
-    output = output.replace(/margin-inline:([^;}]+)/g, 'margin-left:$1;margin-right:$1;margin-inline:$1');
-    output = output.replace(/padding-block:([^;}]+)/g, 'padding-top:$1;padding-bottom:$1;padding-block:$1');
-    output = output.replace(/margin-block:([^;}]+)/g, 'margin-top:$1;margin-bottom:$1;margin-block:$1');
+      // Expand logical padding/margin
+      output = output.replace(/padding-inline:([^;}]+)/g, 'padding-left:$1;padding-right:$1;padding-inline:$1');
+      output = output.replace(/margin-inline:([^;}]+)/g, 'margin-left:$1;margin-right:$1;margin-inline:$1');
+      output = output.replace(/padding-block:([^;}]+)/g, 'padding-top:$1;padding-bottom:$1;padding-block:$1');
+      output = output.replace(/margin-block:([^;}]+)/g, 'margin-top:$1;margin-bottom:$1;margin-block:$1');
 
-    return output;
-  };
+      return output;
+    };
 
-  const processAllStyles = () => {
-    const styles = document.querySelectorAll('style');
-    styles.forEach((s) => {
-      if (!(s as any).__unwrapped && s.textContent && (s.textContent.indexOf('@layer') !== -1 || s.textContent.indexOf('@property') !== -1)) {
-        (s as any).__unwrapped = true;
-        s.textContent = unwrapCss(s.textContent);
-      }
-    });
-  };
+    const processAllStyles = () => {
+      const styles = document.querySelectorAll('style');
+      styles.forEach((s) => {
+        if (!(s as any).__unwrapped && s.textContent && (s.textContent.indexOf('@layer') !== -1 || s.textContent.indexOf('@property') !== -1)) {
+          (s as any).__unwrapped = true;
+          s.textContent = unwrapCss(s.textContent);
+        }
+      });
+    };
 
-  processAllStyles();
-  if (typeof MutationObserver !== 'undefined') {
-    const obs = new MutationObserver(() => processAllStyles());
-    obs.observe(document.documentElement, { childList: true, subtree: true });
+    processAllStyles();
   }
-  const timer = setInterval(processAllStyles, 400);
-  setTimeout(() => clearInterval(timer), 12000);
 })();

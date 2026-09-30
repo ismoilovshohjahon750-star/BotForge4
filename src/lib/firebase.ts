@@ -2,6 +2,7 @@ import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
 import { 
   initializeAuth,
   getAuth,
+  browserPopupRedirectResolver,
   GoogleAuthProvider, 
   GithubAuthProvider, 
   browserLocalPersistence, 
@@ -62,18 +63,20 @@ try {
 }
 export const secondaryDb: Firestore = secDbInstance;
 
-// Authentication with comprehensive fallback persistence for older browsers, private mode & WebViews
+// Authentication with comprehensive fallback persistence and popup/redirect resolver
 let authInstance: Auth;
 try {
   // initializeAuth allows specifying an ordered list of persistence mechanisms
-  // so if indexedDB fails or localStorage is blocked in older browsers, it gracefully falls back
+  // so if indexedDB fails or localStorage is blocked in older browsers, it gracefully falls back.
+  // popupRedirectResolver MUST be explicitly provided so signInWithPopup and signInWithRedirect work.
   authInstance = initializeAuth(originalApp, {
     persistence: [
       indexedDBLocalPersistence,
       browserLocalPersistence,
       browserSessionPersistence,
       inMemoryPersistence
-    ]
+    ],
+    popupRedirectResolver: browserPopupRedirectResolver
   });
 } catch {
   // If already initialized or fallback needed
@@ -85,11 +88,9 @@ try {
 }
 
 export const auth = authInstance;
+export { browserPopupRedirectResolver };
 
 export const googleProvider = new GoogleAuthProvider();
-googleProvider.addScope('email');
-googleProvider.addScope('profile');
-googleProvider.addScope('openid');
 googleProvider.setCustomParameters({
   prompt: 'select_account'
 });

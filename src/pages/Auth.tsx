@@ -15,7 +15,7 @@ import {
   GoogleAuthProvider,
   getAdditionalUserInfo
 } from 'firebase/auth';
-import { auth, googleProvider, githubProvider } from '../lib/firebase';
+import { auth, googleProvider, githubProvider, browserPopupRedirectResolver } from '../lib/firebase';
 import primaryConfig from '../../firebase-applet-config.json';
 import { LogoIcon } from '../components/Logo';
 import { 
@@ -74,7 +74,7 @@ export const Auth: React.FC = () => {
     let isMounted = true;
     (async () => {
       try {
-        const redirectRes = await getRedirectResult(auth);
+        const redirectRes = await getRedirectResult(auth, browserPopupRedirectResolver);
         if (redirectRes && redirectRes.user && isMounted) {
           if (getAdditionalUserInfo(redirectRes)?.isNewUser) {
             try {
@@ -88,21 +88,22 @@ export const Auth: React.FC = () => {
           navigate('/dashboard');
         }
       } catch (err: any) {
-        console.warn("[Auth redirect check error]:", err);
-        if (err.code && err.code !== 'auth/null-user') {
-          toast.error("Kirishda xatolik: " + (err.message || err.code));
+        if (err.code && err.code !== 'auth/null-user' && err.code !== 'auth/no-redirect-operation') {
+          console.warn("[Auth redirect check error]:", err);
         }
       }
     })();
     return () => { isMounted = false; };
   }, [navigate]);
 
-  // Handle Google OAuth
+  // Handle Google OAuth with multi-tier fallback (Popup -> GIS credential -> Redirect)
   const handleGoogleLogin = async () => {
     if (loading) return;
+    setLoading(true);
+
+    // 1. Try Firebase Popup Authentication
     try {
-      setLoading(true);
-      const res = await signInWithPopup(auth, googleProvider);
+      const res = await signInWithPopup(auth, googleProvider, browserPopupRedirectResolver);
       if (getAdditionalUserInfo(res)?.isNewUser) {
         try {
           localStorage.setItem('botly_trigger_signup_feedback', 'true');
@@ -113,35 +114,93 @@ export const Auth: React.FC = () => {
       }
       toast.success("Google orqali muvaffaqiyatli kirdingiz!");
       navigate('/dashboard');
-    } catch (error: any) {
-      console.warn("[Google Login Error]:", error?.code, error?.message);
-      // Older browsers, blocked cookies, in-app webviews, or strict popup blocker
-      if (
-        error.code === 'auth/popup-blocked' || 
-        error.code === 'auth/cancelled-popup-request' ||
-        error.code === 'auth/operation-not-supported-in-this-environment' ||
-        error.code === 'auth/web-storage-unsupported' ||
-        error.code === 'auth/auth-domain-config-required' ||
-        error.message?.toLowerCase().includes('popup')
-      ) {
+      return;
+    } catch (popupError: any) {
+      console.warn("[Google Popup Notice]:", popupError?.code, popupError?.message);
+
+      if (popupError.code === 'auth/popup-closed-by-user') {
+        setLoading(false);
+        return;
+      }
+
+      if (popupError.code === 'auth/account-exists-with-different-credential') {
+        toast.error("Ushbu email manzili allaqachon ro'yxatdan o'tkazilgan. Iltimos, o'sha usuldan foydalanib kiring.");
+        setLoading(false);
+        return;
+      }
+
+      if (popupError.code === 'auth/user-disabled') {
+        toast.error("Ushbu hisob admin tomonidan cheklangan.");
+        setLoading(false);
+        return;
+      }
+
+      // 2. Try Google Identity Services (GIS) Token / One Tap credential client if available
+      const googleGlobal = (window as any).google;
+      const oauthClientId = (primaryConfig as any).oAuthClientId;
+
+      if (googleGlobal?.accounts?.id && oauthClientId) {
         try {
-          toast.info("Oyna ochilmadi, to'g'ridan-to'g'ri kirish sahifasiga yo'naltirilmoqda...");
-          await signInWithRedirect(auth, googleProvider);
-          return;
-        } catch (redirErr: any) {
-          console.error("signInWithRedirect failed:", redirErr);
-          toast.error("Google orqali ulanish imkoni bo'lmadi. Iltimos Email va Parolingiz orqali kiring.");
-        }
-      } else if (error.code === 'auth/popup-closed-by-user') {
-        // User closed popup
-      } else if (error.code === 'auth/account-exists-with-different-credential') {
-        toast.error("Ushbu email manzili allaqachon boshqa kirish usuli bilan ro'yxatdan o'tkazilgan. Iltimos o'sha usuldan foydalanib kiring.");
-      } else if (error.code === 'auth/user-disabled') {
-        toast.error("Ushbu hisob admin tomonidan cheklangan. Iltimos qo'llab-quvvatlash xizmatiga murojaat qiling.");
-      } else if (error.code === 'auth/network-request-failed') {
-        toast.error("Internet ulanishi yoki tarmoq xatosi. Iltimos aloqani tekshiring.");
-      } else {
-        toast.error("Google orqali kirishda xatolik yuz berdi: " + (error.message || 'Xatolik'));
+          const success = await new Promise<boolean>((resolve) => {
+            let handled = false;
+            try {
+              googleGlobal.accounts.id.initialize({
+                client_id: oauthClientId,
+                callback: async (response: any) => {
+                  handled = true;
+                  if (response?.credential) {
+                    try {
+                      const credential = GoogleAuthProvider.credential(response.credential);
+                      const userCred = await signInWithCredential(auth, credential);
+                      if (getAdditionalUserInfo(userCred)?.isNewUser) {
+                        try {
+                          localStorage.setItem('botly_trigger_signup_feedback', 'true');
+                          if (userCred.user?.uid) {
+                            localStorage.setItem(`botly_new_signup_${userCred.user.uid}`, 'true');
+                          }
+                        } catch (_) {}
+                      }
+                      toast.success("Google orqali muvaffaqiyatli kirdingiz!");
+                      navigate('/dashboard');
+                      resolve(true);
+                    } catch (e: any) {
+                      console.warn("GIS credential signin warning:", e);
+                      resolve(false);
+                    }
+                  } else {
+                    resolve(false);
+                  }
+                },
+                auto_select: false,
+                cancel_on_tap_outside: true,
+              });
+
+              googleGlobal.accounts.id.prompt((notification: any) => {
+                if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+                  if (!handled) resolve(false);
+                }
+              });
+
+              setTimeout(() => {
+                if (!handled) resolve(false);
+              }, 4000);
+            } catch (_) {
+              resolve(false);
+            }
+          });
+
+          if (success) return;
+        } catch (_) {}
+      }
+
+      // 3. Fallback to Redirect Authentication
+      try {
+        toast.info("Google tizimiga yo'naltirilmoqda...");
+        await signInWithRedirect(auth, googleProvider, browserPopupRedirectResolver);
+        return;
+      } catch (redirErr: any) {
+        console.error("signInWithRedirect failed:", redirErr);
+        toast.error("Google orqali kirishda xatolik yuz berdi: " + (popupError.message || redirErr?.message || 'Xatolik'));
       }
     } finally {
       setLoading(false);

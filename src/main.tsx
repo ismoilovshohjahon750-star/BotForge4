@@ -5,12 +5,22 @@ import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import './index.css';
 
+// Immediately remove HTML loader so page never hangs on spinner
 if (typeof window !== 'undefined') {
   (window as any).__hasAppLoaded = true;
-  const initialLoader = document.getElementById('app-initial-loader');
-  if (initialLoader) {
-    initialLoader.style.display = 'none';
-  }
+  try {
+    if (typeof (window as any).dismissLoader === 'function') {
+      (window as any).dismissLoader();
+    }
+    const initialLoader = document.getElementById('app-initial-loader');
+    if (initialLoader) {
+      initialLoader.style.opacity = '0';
+      initialLoader.style.pointerEvents = 'none';
+      setTimeout(() => {
+        try { initialLoader.remove(); } catch (_) {}
+      }, 100);
+    }
+  } catch (_) {}
 }
 
 // Global error handlers to prevent unhandled white screens & crash loops

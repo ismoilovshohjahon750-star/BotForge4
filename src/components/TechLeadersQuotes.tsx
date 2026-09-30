@@ -114,7 +114,10 @@ export const TechLeadersQuotes: React.FC = () => {
   };
 
   return (
-    <section className="relative py-16 md:py-24 px-4 overflow-hidden border-t border-zinc-800/80 bg-zinc-950">
+    <section className="relative py-16 md:py-24 px-4 overflow-hidden bg-zinc-950">
+      {/* Soft gradient divider line that fades at edges */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-4xl h-px bg-gradient-to-r from-transparent via-zinc-800/70 to-transparent pointer-events-none" />
+
       {/* Background Glow */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-4xl h-72 bg-gradient-to-r from-blue-600/10 via-cyan-500/10 to-emerald-500/10 blur-[120px] pointer-events-none rounded-full" />
 

@@ -66,6 +66,8 @@ interface UserProfile {
   displayName?: string;
   username?: string;
   photoURL?: string;
+  isOnline?: boolean;
+  lastSeen?: any;
 }
 
 interface SelectedAttachment {
@@ -174,7 +176,9 @@ export const Messages: React.FC = () => {
           email,
           displayName: name,
           username: data.username || email.split('@')[0] || '',
-          photoURL
+          photoURL,
+          isOnline: data.isOnline === true,
+          lastSeen: data.lastSeen || data.updatedAt
         };
       }).filter(p => p.id !== user.uid && p.email?.toLowerCase() !== user.email?.toLowerCase());
       setAllProfiles(profs);
@@ -291,6 +295,60 @@ export const Messages: React.FC = () => {
     }
   }, [activeMsg, user, isAdmin]);
 
+  // Helper to determine if a user profile is genuinely online right now
+  const checkUserOnlineStatus = (profile?: UserProfile | null, isSupport?: boolean): { isOnline: boolean; statusText: string } => {
+    // Official support / Admin assistant is always 24/7 active
+    if (isSupport) {
+      return { isOnline: true, statusText: "onlayn (24/7)" };
+    }
+
+    if (!profile) {
+      return { isOnline: false, statusText: "oflayn" };
+    }
+
+    // Convert lastSeen timestamp if present (handles Firestore Timestamp, Date or string)
+    let lastSeenMs = 0;
+    if (profile.lastSeen) {
+      if (typeof profile.lastSeen.toMillis === 'function') {
+        lastSeenMs = profile.lastSeen.toMillis();
+      } else if (profile.lastSeen.seconds) {
+        lastSeenMs = profile.lastSeen.seconds * 1000;
+      } else {
+        lastSeenMs = new Date(profile.lastSeen).getTime();
+      }
+    }
+
+    const now = Date.now();
+    // A user is considered actively online if isOnline is true AND their last activity/heartbeat was within the last 2.5 minutes (150,000ms)
+    const isRecentlyActive = lastSeenMs > 0 && (now - lastSeenMs) < 150000;
+    const isOnline = Boolean(profile.isOnline && isRecentlyActive);
+
+    if (isOnline) {
+      return { isOnline: true, statusText: "onlayn" };
+    }
+
+    if (lastSeenMs > 0) {
+      const diffMinutes = Math.floor((now - lastSeenMs) / 60000);
+      if (diffMinutes < 1) {
+        return { isOnline: false, statusText: "hozirgina chiqdi" };
+      }
+      if (diffMinutes < 60) {
+        return { isOnline: false, statusText: `${diffMinutes} daqiqa avval faol edi` };
+      }
+      const diffHours = Math.floor(diffMinutes / 60);
+      if (diffHours < 24) {
+        return { isOnline: false, statusText: `${diffHours} soat avval faol edi` };
+      }
+      const date = new Date(lastSeenMs);
+      return {
+        isOnline: false,
+        statusText: `oxirgi marta: ${date.toLocaleDateString('uz-UZ', { day: 'numeric', month: 'short' })} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+      };
+    }
+
+    return { isOnline: false, statusText: "oflayn" };
+  };
+
   const getUserAvatarUrl = (email?: string, name?: string, photoURL?: string) => {
     if (photoURL) return photoURL;
     if (!email && !name) return undefined;
@@ -302,7 +360,7 @@ export const Messages: React.FC = () => {
   };
 
   const getChatPartner = (m: ContactMessage) => {
-    if (!user) return { name: 'Foydalanuvchi', email: '', photoURL: '', isSupport: false };
+    if (!user) return { name: 'Foydalanuvchi', email: '', photoURL: '', isSupport: false, isOnline: false, statusText: 'oflayn' };
     const myUid = user.uid;
     const myEmail = user.email?.toLowerCase();
 
@@ -330,18 +388,25 @@ export const Messages: React.FC = () => {
       isSupport = true;
     }
 
-    const prof = allProfiles.find(p => p.email?.toLowerCase() === email.toLowerCase());
+    const partnerId = isSender ? m.targetUserId : m.userId;
+    const prof = allProfiles.find(p => 
+      (partnerId && p.id === partnerId) || 
+      (email && p.email?.toLowerCase() === email.toLowerCase())
+    );
     const photoURL = prof?.photoURL || getUserAvatarUrl(email, name);
+    const presence = checkUserOnlineStatus(prof, isSupport);
 
     return {
       name,
       email,
       photoURL,
-      isSupport
+      isSupport,
+      isOnline: presence.isOnline,
+      statusText: presence.statusText
     };
   };
 
-  const renderPartnerAvatar = (partner: { name: string; email: string; photoURL?: string; isSupport?: boolean }, sizeClass = "w-10 h-10") => {
+  const renderPartnerAvatar = (partner: { name: string; email: string; photoURL?: string; isSupport?: boolean; isOnline?: boolean }, sizeClass = "w-10 h-10") => {
     if (partner.isSupport || partner.email === 'admin@cloudbot.uz' || partner.email === 'admin@botforge.uz' || partner.name === 'Shikoyatlar va takliflar') {
       return (
         <div className="relative shrink-0">
@@ -359,6 +424,7 @@ export const Messages: React.FC = () => {
     }
 
     const avatarUrl = partner.photoURL || getUserAvatarUrl(partner.email, partner.name);
+    const isOnline = Boolean(partner.isOnline);
 
     return (
       <div className="relative shrink-0">
@@ -372,7 +438,18 @@ export const Messages: React.FC = () => {
             e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(partner.name || 'User')}&background=06b6d4&color=ffffff&bold=true`;
           }}
         />
-        <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-400 rounded-full border-2 border-[#0c0d14]" />
+        {/* Real-time Presence Badge: Green dot if genuine online, subtle slate ring if offline */}
+        {isOnline ? (
+          <span 
+            className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-400 rounded-full border-2 border-[#0c0d14] shadow-xs" 
+            title="Onlayn"
+          />
+        ) : (
+          <span 
+            className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-zinc-600 rounded-full border-2 border-[#0c0d14]" 
+            title="Oflayn"
+          />
+        )}
       </div>
     );
   };
@@ -1214,10 +1291,17 @@ export const Messages: React.FC = () => {
                           )}
                         </div>
                         <p className="text-[11px] text-zinc-400 truncate flex items-center gap-2">
-                          <span className="flex items-center gap-1 text-emerald-400 font-medium">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                            faol
-                          </span>
+                          {partner.isOnline ? (
+                            <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
+                              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-sm shadow-emerald-500/50" />
+                              <span>{partner.statusText || 'onlayn'}</span>
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1.5 text-zinc-500 font-medium">
+                              <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" />
+                              <span>{partner.statusText || 'oflayn'}</span>
+                            </span>
+                          )}
                           <span>•</span>
                           <span className="text-zinc-400 truncate font-mono text-[10px]">{partner.email || activeMsg.subject || 'CloudBot Chat'}</span>
                         </p>
@@ -1667,29 +1751,46 @@ export const Messages: React.FC = () => {
                           );
                         }
 
-                        return searchResults.slice(0, 6).map((p) => (
-                          <div
-                            key={p.id}
-                            onClick={() => setSelectedTargetUser(p)}
-                            className="p-3 hover:bg-white/[0.05] cursor-pointer flex items-center justify-between transition-colors text-xs"
-                          >
-                            <div className="flex items-center gap-3 min-w-0">
-                              <img 
-                                src={getUserAvatarUrl(p.email, p.displayName, p.photoURL)} 
-                                alt={p.displayName || 'User'} 
-                                className="w-8 h-8 rounded-full object-cover shrink-0 border border-white/10"
-                                referrerPolicy="no-referrer"
-                              />
-                              <div className="min-w-0">
-                                <p className="font-semibold text-white truncate">{p.displayName}</p>
-                                <p className="text-[10px] text-zinc-400 truncate">{p.email}</p>
+                        return searchResults.slice(0, 6).map((p) => {
+                          const presence = checkUserOnlineStatus(p, false);
+                          return (
+                            <div
+                              key={p.id}
+                              onClick={() => setSelectedTargetUser(p)}
+                              className="p-3 hover:bg-white/[0.05] cursor-pointer flex items-center justify-between transition-colors text-xs"
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="relative shrink-0">
+                                  <img 
+                                    src={getUserAvatarUrl(p.email, p.displayName, p.photoURL)} 
+                                    alt={p.displayName || 'User'} 
+                                    className="w-8 h-8 rounded-full object-cover shrink-0 border border-white/10"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                  {presence.isOnline ? (
+                                    <span className="absolute bottom-0 right-0 w-2 h-2 bg-emerald-400 rounded-full border-2 border-black" />
+                                  ) : (
+                                    <span className="absolute bottom-0 right-0 w-2 h-2 bg-zinc-600 rounded-full border-2 border-black" />
+                                  )}
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-1.5">
+                                    <p className="font-semibold text-white truncate">{p.displayName}</p>
+                                    <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-medium ${
+                                      presence.isOnline ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-zinc-500'
+                                    }`}>
+                                      {presence.statusText}
+                                    </span>
+                                  </div>
+                                  <p className="text-[10px] text-zinc-400 truncate">{p.email}</p>
+                                </div>
                               </div>
+                              <span className="text-[10px] text-cyan-400 font-semibold bg-cyan-500/10 border border-cyan-500/20 px-2.5 py-1 rounded-lg">
+                                Tanlash
+                              </span>
                             </div>
-                            <span className="text-[10px] text-cyan-400 font-semibold bg-cyan-500/10 border border-cyan-500/20 px-2.5 py-1 rounded-lg">
-                              Tanlash
-                            </span>
-                          </div>
-                        ));
+                          );
+                        });
                       })()}
                     </div>
                   </div>

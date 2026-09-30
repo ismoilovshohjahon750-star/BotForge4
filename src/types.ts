@@ -5,9 +5,12 @@ export type LogLevel = 'info' | 'warn' | 'error';
 export interface Profile {
   id: string;
   email: string;
+  displayName?: string;
   createdAt: string;
   agreedToTerms?: boolean;
   termsAgreedAt?: string;
+  isOnline?: boolean;
+  lastSeen?: any;
 }
 
 export interface UserRole {

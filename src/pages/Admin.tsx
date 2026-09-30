@@ -155,6 +155,14 @@ export const Admin: React.FC = () => {
   const [actioningBotId, setActioningBotId] = useState<string | null>(null);
   const [isResetting, setIsResetting] = useState(false);
 
+  const formatDateTime = (val?: any): string => {
+    if (!val) return '';
+    let str = String(val).trim();
+    // If it starts with 'M' followed by date e.g. M09 16 06:53 AM
+    str = str.replace(/^M(?=\d{2}\s+\d{2}\s+\d{2}:\d{2})/i, '').replace(/(\s+)M(?=\d{2}\s+\d{2}\s+\d{2}:\d{2})/gi, '$1');
+    return str;
+  };
+
   const handleResetSystemData = async () => {
     if (!window.confirm("Rostdan ham veb-saytdagi barcha ma'lumotlar, botlar va fayllarni to'liq tozalashni xohlaysizmi? Bu amalni ortga qaytarib bo'lmaydi!")) {
       return;
@@ -607,7 +615,9 @@ export const Admin: React.FC = () => {
               displayName: u.displayName || '',
               createdAt: u.createdAt || new Date().toISOString(),
               agreedToTerms: u.agreedToTerms !== false,
-              termsAgreedAt: u.termsAgreedAt || u.createdAt
+              termsAgreedAt: u.termsAgreedAt || u.createdAt,
+              isOnline: u.isOnline === true,
+              lastSeen: u.lastSeen
             })));
             const apiSubs: Record<string, PlanType> = {};
             const apiDetails: Record<string, SubDetail> = {};
@@ -666,15 +676,50 @@ export const Admin: React.FC = () => {
       if (error?.code === 'resource-exhausted' || error?.code === 'unavailable') unsubProfiles();
     });
 
-    // 2. Fetch Subscriptions in Real-Time
+    // 2. Fetch Subscriptions in Real-Time & Auto-Expire after 1 month
     let unsubSubs = () => {};
     unsubSubs = onSnapshot(collection(db, 'subscriptions'), (snapshot) => {
       const subsMap: Record<string, PlanType> = {};
       const detailsMap: Record<string, SubDetail> = {};
+      const now = new Date();
 
       snapshot.docs.forEach(d => {
         const data = d.data();
-        const p = (data.plan as PlanType) || 'free';
+        let p = (data.plan as PlanType) || 'free';
+        const isSuperAdmin = d.id === 'xTfDiBqv28YWG2MjTnyzDZeFTRm1' || data.email === 'ismoilovshohjahon750@gmail.com';
+
+        // Check if 1 month expiration has passed for PRO/VIP users
+        if (!isSuperAdmin && (p === 'pro' || p === 'vip')) {
+          let dueDate: Date | null = null;
+          if (data.dueDateISO) {
+            dueDate = new Date(data.dueDateISO);
+          } else if (data.dueDateFormatted && typeof data.dueDateFormatted === 'string') {
+            const match = data.dueDateFormatted.trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\d{1,2}):(\d{1,2}))?/);
+            if (match) {
+              dueDate = new Date(parseInt(match[3], 10), parseInt(match[2], 10) - 1, parseInt(match[1], 10), match[4] ? parseInt(match[4], 10) : 23, match[5] ? parseInt(match[5], 10) : 59);
+            }
+          } else if (data.assignedAt || data.updatedAt) {
+            const assigned = new Date(data.assignedAt || data.updatedAt);
+            if (!isNaN(assigned.getTime())) {
+              dueDate = new Date(assigned);
+              dueDate.setMonth(dueDate.getMonth() + 1); // 1 oy
+            }
+          }
+
+          if (dueDate && !isNaN(dueDate.getTime()) && now.getTime() >= dueDate.getTime()) {
+            // Expired! Auto downgrade in Firestore and set to free
+            p = 'free';
+            safeSetDoc(doc(db, 'subscriptions', d.id), {
+              plan: 'free',
+              dueDateISO: null,
+              dueDateFormatted: null,
+              expiredAt: now.toISOString(),
+              expiredFromPlan: data.plan,
+              updatedAt: now.toISOString()
+            }, { merge: true }).catch(() => {});
+          }
+        }
+
         subsMap[d.id] = p;
         detailsMap[d.id] = {
           plan: p,
@@ -1224,16 +1269,46 @@ export const Admin: React.FC = () => {
                         const isSendingNotify = sendingNotifyId === p.id;
                         const isSuperAdmin = p.email === 'ismoilovshohjahon750@gmail.com';
 
+                        // Check real online status
+                        let lastSeenMs = 0;
+                        if (p.lastSeen) {
+                          if (typeof p.lastSeen.toMillis === 'function') {
+                            lastSeenMs = p.lastSeen.toMillis();
+                          } else if (p.lastSeen.seconds) {
+                            lastSeenMs = p.lastSeen.seconds * 1000;
+                          } else {
+                            lastSeenMs = new Date(p.lastSeen).getTime();
+                          }
+                        }
+                        const isOnline = Boolean(p.isOnline && lastSeenMs > 0 && (Date.now() - lastSeenMs) < 150000);
+
                         return (
                           <TableRow key={p.id} className="hover:bg-muted/20 transition-colors">
                             <TableCell className="font-semibold text-sm">
-                              <div className="flex items-center gap-2">
-                                <span>{p.email || 'Email kiritilmagan'}</span>
-                                {isSuperAdmin && (
-                                  <Badge className="bg-amber-500/20 text-amber-500 hover:bg-amber-500/30 border-amber-500/30 text-[10px] px-1.5 py-0">
-                                    Admin
-                                  </Badge>
-                                )}
+                              <div className="flex flex-col gap-0.5">
+                                <div className="flex items-center gap-2">
+                                  <span className="flex items-center gap-1.5">
+                                    <span 
+                                      className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-400 animate-pulse shadow-xs shadow-emerald-500/50' : 'bg-zinc-600'}`} 
+                                      title={isOnline ? 'Onlayn' : 'Oflayn'}
+                                    />
+                                    <span className="text-foreground">{p.email || 'Email kiritilmagan'}</span>
+                                  </span>
+                                  {isSuperAdmin && (
+                                    <Badge className="bg-amber-500/20 text-amber-500 hover:bg-amber-500/30 border-amber-500/30 text-[10px] px-1.5 py-0">
+                                      Admin
+                                    </Badge>
+                                  )}
+                                </div>
+                                <span className="text-[11px] text-muted-foreground font-normal pl-3.5">
+                                  {isOnline ? (
+                                    <span className="text-emerald-400 font-medium">onlayn</span>
+                                  ) : lastSeenMs > 0 ? (
+                                    `oxirgi marta: ${new Date(lastSeenMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                                  ) : (
+                                    'oflayn'
+                                  )}
+                                </span>
                               </div>
                             </TableCell>
 
@@ -1844,7 +1919,7 @@ export const Admin: React.FC = () => {
                             </Badge>
                           </div>
                           <span className="text-[11px] text-muted-foreground font-mono">
-                            {log.created_at || ''}
+                            {formatDateTime(log.created_at)}
                           </span>
                         </div>
                         <p className="text-xs whitespace-pre-wrap leading-relaxed">
@@ -1915,7 +1990,7 @@ export const Admin: React.FC = () => {
                         {tgStatus.recentStarsPayments.map((pay: any) => (
                           <TableRow key={pay.id} className="hover:bg-amber-500/5">
                             <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                              {pay.created_at}
+                              {formatDateTime(pay.created_at)}
                             </TableCell>
                             <TableCell className="text-xs font-medium">
                               <div className="flex flex-col">

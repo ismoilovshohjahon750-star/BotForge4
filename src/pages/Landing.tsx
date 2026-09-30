@@ -105,15 +105,81 @@ export const Landing: React.FC = () => {
       </section>
 
       {/* Languages Section */}
-      <section className="py-16 bg-zinc-900/40 border-y border-zinc-800/80">
-        <div className="container mx-auto px-4 text-center">
-          <h2 className="text-2xl md:text-3xl font-bold mb-8 text-white">
+      <section className="relative py-16 md:py-20 px-4 overflow-hidden bg-zinc-950">
+        {/* Soft background ambient light */}
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_50%_50%,rgba(16,185,129,0.06),transparent_70%)] pointer-events-none" />
+
+        <div className="container mx-auto max-w-5xl relative z-10 text-center">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-zinc-900/90 border border-zinc-800/80 text-zinc-400 text-xs font-medium mb-4 shadow-xs">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span>Ko'p tilli qo'llab-quvvatlash</span>
+          </div>
+
+          <h2 className="text-2xl sm:text-3xl md:text-4xl font-extrabold mb-3 text-white tracking-tight">
             {t('landing_popular_langs', 'Barcha ommabop dasturlash tillari')}
           </h2>
-          <div className="flex flex-wrap justify-center items-center gap-6 md:gap-12 text-zinc-400">
-            {['Node.js', 'Python', 'Go', 'Rust', 'Ruby', 'PHP'].map(lang => (
-              <div key={lang} className="px-4 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-lg font-mono font-bold text-zinc-300">
-                {lang}
+          <p className="text-xs sm:text-sm text-zinc-400 max-w-xl mx-auto mb-10 leading-relaxed">
+            Node.js, Python, Go, Rust, Ruby yoki PHP — istalgan backend va bot freymvorklarini avtomatik muhitda bir xil barqarorlik bilan ishga tushiring.
+          </p>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5 sm:gap-4">
+            {[
+              {
+                name: 'Node.js',
+                ext: 'JS / TS',
+                icon: 'JS',
+                badgeColor: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 group-hover:border-emerald-400/60',
+                hoverGlow: 'group-hover:border-emerald-500/40 group-hover:shadow-emerald-950/40'
+              },
+              {
+                name: 'Python',
+                ext: 'v3.10+',
+                icon: 'PY',
+                badgeColor: 'bg-sky-500/10 text-sky-400 border-sky-500/30 group-hover:border-sky-400/60',
+                hoverGlow: 'group-hover:border-sky-500/40 group-hover:shadow-sky-950/40'
+              },
+              {
+                name: 'Go',
+                ext: 'Golang',
+                icon: 'GO',
+                badgeColor: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30 group-hover:border-cyan-400/60',
+                hoverGlow: 'group-hover:border-cyan-500/40 group-hover:shadow-cyan-950/40'
+              },
+              {
+                name: 'Rust',
+                ext: 'Cargo',
+                icon: 'RS',
+                badgeColor: 'bg-amber-500/10 text-amber-400 border-amber-500/30 group-hover:border-amber-400/60',
+                hoverGlow: 'group-hover:border-amber-500/40 group-hover:shadow-amber-950/40'
+              },
+              {
+                name: 'Ruby',
+                ext: 'Gems',
+                icon: 'RB',
+                badgeColor: 'bg-rose-500/10 text-rose-400 border-rose-500/30 group-hover:border-rose-400/60',
+                hoverGlow: 'group-hover:border-rose-500/40 group-hover:shadow-rose-950/40'
+              },
+              {
+                name: 'PHP',
+                ext: 'v8.2+',
+                icon: 'PHP',
+                badgeColor: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30 group-hover:border-indigo-400/60',
+                hoverGlow: 'group-hover:border-indigo-500/40 group-hover:shadow-indigo-950/40'
+              }
+            ].map(lang => (
+              <div
+                key={lang.name}
+                className={`group relative p-4 sm:p-5 rounded-2xl bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800/80 backdrop-blur-sm transition-all duration-300 flex flex-col items-center justify-center text-center shadow-md hover:shadow-xl hover:-translate-y-1 ${lang.hoverGlow}`}
+              >
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xs font-mono font-extrabold mb-2.5 border transition-all duration-300 group-hover:scale-110 shadow-inner ${lang.badgeColor}`}>
+                  {lang.icon}
+                </div>
+                <span className="font-mono font-bold text-sm text-zinc-100 group-hover:text-white transition-colors">
+                  {lang.name}
+                </span>
+                <span className="text-[11px] text-zinc-400 group-hover:text-zinc-300 mt-0.5 font-mono">
+                  {lang.ext}
+                </span>
               </div>
             ))}
           </div>

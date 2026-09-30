@@ -16,8 +16,7 @@
     <meta property="og:description" content="Telegram va Discord botlarini .zip orqali yuklab, 24/7 cloud hostingda ishga tushiruvchi SaaS platforma." />
     <meta property="og:image" content="/favicon.svg" />
     <meta property="og:type" content="website" />
-    <link rel="stylesheet" href="/src/index.css" />
-    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9609197230968802" crossorigin="anonymous"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script>
       // Cleanly handle benign iframe WebSocket notices and Firestore transient offline/unavailable messages
       window.addEventListener('unhandledrejection', function(event) {
@@ -134,19 +133,40 @@
     </style>
   </head>
   <body class="bg-[#09090b] text-[#fafafa]">
-    <div id="root">
-      <div id="app-initial-loader" style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #09090b; color: #e4e4e7; font-family: system-ui, -apple-system, sans-serif; padding: 20px; text-align: center;">
-        <div style="width: 44px; height: 44px; border: 3px solid rgba(34, 197, 94, 0.2); border-top-color: #22c55e; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 20px;"></div>
-        <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
-        <h3 id="loader-title" style="font-size: 18px; font-weight: 600; margin: 0 0 8px 0; color: #ffffff;">CloudBot yuklanmoqda...</h3>
-        <p id="loader-desc" style="font-size: 13px; color: #a1a1aa; max-width: 320px; margin: 0 auto 16px auto; line-height: 1.5;">
-          Iltimos kuting, xizmatlar ishga tushirilmoqda...
-        </p>
-        <div id="loader-actions" style="display: none; margin-top: 10px;">
-          <button onclick="refreshApp()" style="background: #22c55e; color: #000; font-weight: 600; padding: 9px 18px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px;">Qayta yuklash</button>
-        </div>
+    <!-- App Initial Loader (Overlay that automatically fades out and removes itself immediately) -->
+    <div id="app-initial-loader" style="position: fixed; inset: 0; z-index: 999999; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #09090b; color: #e4e4e7; font-family: system-ui, -apple-system, sans-serif; padding: 20px; text-align: center; transition: opacity 0.25s ease-out;">
+      <div style="width: 44px; height: 44px; border: 3px solid rgba(34, 197, 94, 0.2); border-top-color: #22c55e; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 20px;"></div>
+      <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
+      <h3 id="loader-title" style="font-size: 18px; font-weight: 600; margin: 0 0 8px 0; color: #ffffff;">CloudBot yuklanmoqda...</h3>
+      <p id="loader-desc" style="font-size: 13px; color: #a1a1aa; max-width: 320px; margin: 0 auto 16px auto; line-height: 1.5;">
+        Iltimos kuting, xizmatlar ishga tushirilmoqda...
+      </p>
+      <div id="loader-actions" style="display: none; margin-top: 14px; gap: 8px;">
+        <button onclick="refreshApp()" style="background: #22c55e; color: #000; font-weight: 600; padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px; margin: 0 4px;">Qayta yuklash</button>
+        <button onclick="clearAndReload()" style="background: #27272a; color: #fafafa; font-weight: 500; padding: 10px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15); cursor: pointer; font-size: 13px; margin: 0 4px;">Keshni tozalash</button>
       </div>
     </div>
+
+    <!-- Main React Mount Container -->
+    <div id="root"></div>
+
+    <script>
+      function dismissLoader() {
+        var loader = document.getElementById('app-initial-loader');
+        if (loader) {
+          loader.style.opacity = '0';
+          loader.style.pointerEvents = 'none';
+          setTimeout(function() {
+            try { loader.remove(); } catch (_) {}
+          }, 300);
+        }
+      }
+
+      // Automatically dismiss the splash screen after 1.8 seconds max under any circumstance
+      setTimeout(function() {
+        dismissLoader();
+      }, 1800);
+    </script>
     <script>
       function refreshApp() {
         try {
@@ -160,26 +180,41 @@
         window.location.replace(cleanUrl);
       }
 
+      function clearAndReload() {
+        try {
+          localStorage.clear();
+          sessionStorage.clear();
+        } catch (_) {}
+        refreshApp();
+      }
+
       window.addEventListener('error', function(e) {
         if (!window.__hasAppLoaded) {
           var desc = document.getElementById('loader-desc');
           var actions = document.getElementById('loader-actions');
           var msg = e && (e.message || (e.error && e.error.message) || '');
           if (msg && !/ResizeObserver|Script error/i.test(msg)) {
-            if (desc) desc.textContent = "Yuklashda uzilish yuz berdi. Sahifani qayta yuklang.";
-            if (actions) actions.style.display = 'block';
+            if (desc) desc.textContent = "Yuklashda uzilish yuz berdi. Iltimos, sahifani qayta yuklang.";
+            if (actions) {
+              actions.style.display = 'flex';
+              actions.style.justifyContent = 'center';
+            }
           }
         }
       });
 
+      // Quick fallback if module loading takes more than 4.5 seconds
       setTimeout(function() {
         if (!window.__hasAppLoaded) {
           var desc = document.getElementById('loader-desc');
           var actions = document.getElementById('loader-actions');
-          if (desc) desc.textContent = "Yuklanish odatdagidan ko'proq vaqt olyapti. Internet aloqangizni tekshiring yoki sahifani yangilang.";
-          if (actions) actions.style.display = 'block';
+          if (desc) desc.textContent = "Xizmatlar ulanishi kutilmoqda. Qayta yuklash tugmasini bosishingiz mumkin.";
+          if (actions) {
+            actions.style.display = 'flex';
+            actions.style.justifyContent = 'center';
+          }
         }
-      }, 12000);
+      }, 4500);
     </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>

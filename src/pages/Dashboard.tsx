@@ -5,11 +5,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Badge } from '../components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { Plus, Play, Square, Bot as BotIcon, RefreshCcw, FileUp, Terminal, Activity, FileText, Trash2, Search, Copy, Check, Radio, Clock, Shield, Cpu, Filter, X, ArrowLeft, Key, Eye, EyeOff, Settings, Sliders, Database, Github, Send, ExternalLink, Sparkles, Wand2, AlertTriangle, Mail, Zap } from 'lucide-react';
+import { Plus, Play, Square, Bot as BotIcon, RefreshCcw, FileUp, Terminal, Activity, FileText, Trash2, Search, Copy, Check, Radio, Clock, Shield, Cpu, Filter, X, ArrowLeft, Key, Eye, EyeOff, Settings, Sliders, Database, Github, Send, ExternalLink, Sparkles, Wand2, AlertTriangle, Mail, Zap, Crown } from 'lucide-react';
 import { collection, query, where, onSnapshot, addDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { GithubAuthProvider, signInWithPopup, linkWithPopup, sendEmailVerification } from 'firebase/auth';
 import { safeSetDoc, safeUpdateDoc, safeDeleteDoc, isFirestoreQuotaExhausted } from '../lib/safeFirestore';
-import { db, auth, githubProvider } from '../lib/firebase';
+import { db, auth, githubProvider, browserPopupRedirectResolver } from '../lib/firebase';
 import type { Bot, BotStatus, BotLog } from '../types';
 import { toast } from 'sonner';
 import {Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger} from '../components/ui/dialog';
@@ -93,7 +93,7 @@ export const Dashboard: React.FC = () => {
 
       if (auth.currentUser) {
         try {
-          const res = await linkWithPopup(auth.currentUser, githubProvider);
+          const res = await linkWithPopup(auth.currentUser, githubProvider, browserPopupRedirectResolver);
           const cred = GithubAuthProvider.credentialFromResult(res);
           if (cred?.accessToken) {
             token = cred.accessToken;
@@ -120,7 +120,7 @@ export const Dashboard: React.FC = () => {
           } else {
             // Fallback to signInWithPopup
             try {
-              const signRes = await signInWithPopup(auth, githubProvider);
+              const signRes = await signInWithPopup(auth, githubProvider, browserPopupRedirectResolver);
               const cred = GithubAuthProvider.credentialFromResult(signRes);
               if (cred?.accessToken) {
                 token = cred.accessToken;
@@ -154,7 +154,7 @@ export const Dashboard: React.FC = () => {
         }
       } else {
         try {
-          const res = await signInWithPopup(auth, githubProvider);
+          const res = await signInWithPopup(auth, githubProvider, browserPopupRedirectResolver);
           const cred = GithubAuthProvider.credentialFromResult(res);
           if (cred?.accessToken) {
             token = cred.accessToken;
@@ -223,6 +223,7 @@ export const Dashboard: React.FC = () => {
 
   // User subscription state
   const [userPlan, setUserPlan] = useState<'free' | 'pro' | 'vip'>('free');
+  const [subExpiryDate, setSubExpiryDate] = useState<string | null>(null);
   const [scheduleInfo, setScheduleInfo] = useState<{
     plan: 'free' | 'pro' | 'vip';
     planName: string;
@@ -263,7 +264,60 @@ export const Dashboard: React.FC = () => {
     const isOwner = user.email === 'ismoilovshohjahon750@gmail.com' || user.uid === 'xTfDiBqv28YWG2MjTnyzDZeFTRm1';
     if (isOwner) {
       setUserPlan('vip');
+      setSubExpiryDate('Cheksiz (Umrbod VIP)');
     }
+
+    const checkAndHandleExpiration = (data: any): 'free' | 'pro' | 'vip' => {
+      if (isOwner) return 'vip';
+      const plan = (data?.plan as 'free' | 'pro' | 'vip') || 'free';
+      if (plan === 'free') {
+        setSubExpiryDate(null);
+        return 'free';
+      }
+
+      let dueDate: Date | null = null;
+      if (data?.dueDateISO) {
+        dueDate = new Date(data.dueDateISO);
+      } else if (data?.dueDateFormatted && typeof data.dueDateFormatted === 'string') {
+        const m = data.dueDateFormatted.trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\d{1,2}):(\d{1,2}))?/);
+        if (m) {
+          dueDate = new Date(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10), m[4] ? parseInt(m[4], 10) : 23, m[5] ? parseInt(m[5], 10) : 59);
+        }
+      } else if (data?.assignedAt || data?.updatedAt) {
+        const ass = new Date(data.assignedAt || data.updatedAt);
+        if (!isNaN(ass.getTime())) {
+          dueDate = new Date(ass);
+          dueDate.setMonth(dueDate.getMonth() + 1); // 1 oy
+        }
+      }
+
+      if (dueDate && !isNaN(dueDate.getTime())) {
+        if (Date.now() >= dueDate.getTime()) {
+          // 1 oylik muddat tugagan! Avtomatik ravishda bepulga tushirish
+          console.log("[Subscription Expired]: 1 oy muddat tugadi, avtomatik bepul tarifga o'tkazildi");
+          setSubExpiryDate(null);
+          safeSetDoc(doc(db, 'subscriptions', user.uid), {
+            plan: 'free',
+            dueDateISO: null,
+            dueDateFormatted: null,
+            expiredAt: new Date().toISOString(),
+            expiredFromPlan: plan,
+            updatedAt: new Date().toISOString()
+          }, { merge: true }).catch(() => {});
+
+          user.getIdToken().then(t => {
+            fetch('/api/user/subscription', { headers: { 'Authorization': `Bearer ${t}` } }).catch(() => {});
+          });
+
+          toast.info(`Sizning 1 oylik ${plan.toUpperCase()} obuna muddatingiz tugadi va hisobingiz bepul tarifga o'tkazildi.`, { duration: 6000 });
+          return 'free';
+        } else {
+          setSubExpiryDate(data.dueDateFormatted || dueDate.toLocaleDateString('uz-UZ'));
+        }
+      }
+
+      return plan;
+    };
 
     const fetchSubFromApi = async () => {
       try {
@@ -274,7 +328,8 @@ export const Dashboard: React.FC = () => {
         if (res.ok) {
           const data = await res.json();
           if (data.plan) {
-            setUserPlan(isOwner ? 'vip' : data.plan);
+            const finalPlan = checkAndHandleExpiration(data);
+            setUserPlan(isOwner ? 'vip' : finalPlan);
           }
         }
       } catch (e) {}
@@ -288,10 +343,12 @@ export const Dashboard: React.FC = () => {
     let unsubSub = () => {};
     unsubSub = onSnapshot(subRef, (snapshot) => {
       if (snapshot.exists()) {
-        const fsPlan = (snapshot.data()?.plan as any) || 'free';
-        setUserPlan(isOwner ? 'vip' : fsPlan);
+        const data = snapshot.data();
+        const finalPlan = checkAndHandleExpiration(data);
+        setUserPlan(isOwner ? 'vip' : finalPlan);
       } else {
         setUserPlan(isOwner ? 'vip' : 'free');
+        if (!isOwner) setSubExpiryDate(null);
       }
     }, (err: any) => {
       fetchSubFromApi();
@@ -1100,10 +1157,29 @@ export const Dashboard: React.FC = () => {
         </div>
       )}
 
-      <div className="flex justify-between items-end mb-8">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 mb-8">
         <div>
-          <h1 className="text-3xl font-bold">{t('dash_title', 'Boshqaruv Paneli')}</h1>
-          <p className="text-muted-foreground mt-1">{t('dash_subtitle', 'Barcha botlaringiz va ularning holati')}</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-3xl font-bold">{t('dash_title', 'Boshqaruv Paneli')}</h1>
+            {userPlan === 'vip' ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-gradient-to-r from-amber-500 to-yellow-500 text-black shadow-sm">
+                <Crown className="w-3.5 h-3.5" />
+                VIP (30 bot)
+              </span>
+            ) : userPlan === 'pro' ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-sm">
+                <Zap className="w-3.5 h-3.5" />
+                PRO (10 bot)
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-muted text-muted-foreground border border-border">
+                Bepul (2 bot)
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 mt-1">
+            <p className="text-muted-foreground text-sm">{t('dash_subtitle', 'Barcha botlaringiz va ularning holati')}</p>
+          </div>
         </div>
         
         <Dialog>
@@ -1805,7 +1881,9 @@ export const Dashboard: React.FC = () => {
                       </span>
                     </div>
                     <pre className="flex-1 text-zinc-200 whitespace-pre-wrap font-mono text-xs leading-relaxed break-words w-full overflow-x-auto">
-                      {log.message}
+                      {typeof log.message === 'string' 
+                        ? log.message.replace(/^M(?=\d{2}\s+\d{2}\s+\d{2}:\d{2})/i, '').replace(/(\s+)M(?=\d{2}\s+\d{2}\s+\d{2}:\d{2})/gi, '$1')
+                        : log.message}
                     </pre>
                   </div>
                 );

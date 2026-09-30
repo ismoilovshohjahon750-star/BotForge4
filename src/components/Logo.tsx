@@ -4,6 +4,7 @@ interface LogoProps {
   size?: number;
   className?: string;
   variant?: 'teal' | 'gradient' | 'white';
+  style?: React.CSSProperties;
 }
 
 /**
@@ -14,7 +15,8 @@ interface LogoProps {
 export const LogoIcon: React.FC<LogoProps> = ({ 
   size = 32, 
   className = '',
-  variant = 'teal' 
+  variant = 'teal',
+  style
 }) => {
   return (
     <svg
@@ -23,6 +25,7 @@ export const LogoIcon: React.FC<LogoProps> = ({
       viewBox="0 0 94 72"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
+      style={style}
       className={`shrink-0 transition-transform duration-300 hover:scale-105 select-none ${className}`}
       aria-label="CloudBot Logo"
     >

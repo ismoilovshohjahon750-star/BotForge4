@@ -2171,6 +2171,10 @@ async function startBot(botId: string) {
                     line = line.substring(0, 2000) + '... (uzun log qisqartirildi)';
                 }
 
+                // Strip accidental 'M' prefix from timestamp tokens like 'M09 16 06:53 AM' or 'M09 16 ...'
+                line = line.replace(/^M(?=\d{2}\s+\d{2}\s+\d{2}:\d{2})/i, '');
+                line = line.replace(/(\s+)M(?=\d{2}\s+\d{2}\s+\d{2}:\d{2})/gi, '$1');
+
                 // Filter out noisy python framework warnings & pip messages
                 if (line.includes('RuntimeWarning') || line.includes('tracemalloc')) continue;
                 if (line.includes('WARNING: Running pip as the') || line.includes('Requirement already satisfied')) continue;
@@ -4557,10 +4561,20 @@ async function startServer() {
       if (!isNaN(d.getTime())) return d;
     }
 
+    // Default fallback: exactly 1 month after assignedAt or updatedAt
+    if (data.assignedAt || data.updatedAt) {
+      const assigned = new Date(data.assignedAt || data.updatedAt);
+      if (!isNaN(assigned.getTime())) {
+        const exp = new Date(assigned);
+        exp.setMonth(exp.getMonth() + 1);
+        return exp;
+      }
+    }
+
     return null;
   }
 
-  // Auto-expiration check for VIP / PRO subscriptions when payment / due date has arrived or passed
+  // Auto-expiration check for VIP / PRO subscriptions when payment / 1-month due date has arrived or passed
   async function checkAndExpireSubscriptions() {
     try {
       const now = new Date();
@@ -4618,6 +4632,20 @@ async function startServer() {
               );
             } catch (_) {}
 
+            // Check running bots limit (free plan max 2 bots)
+            try {
+              const runningUserBots = db.prepare("SELECT id, name FROM bots WHERE owner_id = ? AND status = 'running'").all(userId) as any[];
+              if (runningUserBots.length > 2) {
+                const excessBots = runningUserBots.slice(2);
+                for (const b of excessBots) {
+                  stopBot(b.id).catch(() => {});
+                  addBotLog(b.id, 'system', `[Obuna]: ${oldPlan.toUpperCase()} obuna muddati tugab, bepul tarifga o'tganligi sababli (bepul tarifda maksimal 2 ta bot) ushbu bot avtomatik to'xtatildi.`);
+                }
+              }
+            } catch (botErr) {
+              console.warn("Excess bot stop warning:", botErr);
+            }
+
             console.log(`[Auto-Expire SQLite]: User ${userEmail} (${userId}) plan reverted from ${oldPlan} to free.`);
 
             // Revert in Firestore for this specific user if connected
@@ -4628,7 +4656,8 @@ async function startServer() {
                   dueDateISO: null,
                   dueDateFormatted: null,
                   expiredAt: now.toISOString(),
-                  expiredFromPlan: oldPlan
+                  expiredFromPlan: oldPlan,
+                  updatedAt: now.toISOString()
                 }, { merge: true });
 
                 await adminDb.collection('notifications').add({
@@ -4659,14 +4688,78 @@ async function startServer() {
       } catch (sqlErr) {
         console.warn("SQLite auto-expire check warning:", sqlErr);
       }
+
+      // 2. Direct Firestore inspection to catch subscriptions created or modified externally
+      if (adminDb && !isFirestoreQuotaExhausted()) {
+        try {
+          const fsSubsSnap = await adminDb.collection('subscriptions').get();
+          for (const docSnap of fsSubsSnap.docs) {
+            const fsData = docSnap.data() || {};
+            const plan = fsData.plan;
+            const userId = docSnap.id;
+
+            if (plan !== 'pro' && plan !== 'vip') continue;
+
+            // Admin is exempt
+            if (
+              userId === 'xTfDiBqv28YWG2MjTnyzDZeFTRm1' ||
+              userId === 'ismoilovshohjahon750@gmail.com' ||
+              fsData.email === 'ismoilovshohjahon750@gmail.com'
+            ) {
+              continue;
+            }
+
+            const dueDate = parseDueDate(fsData);
+            if (dueDate && now.getTime() >= dueDate.getTime()) {
+              const oldPlan = plan;
+              const formattedExpDate = formatDateTimeFull(now);
+
+              // Update Firestore
+              await docSnap.ref.set({
+                plan: 'free',
+                dueDateISO: null,
+                dueDateFormatted: null,
+                expiredAt: now.toISOString(),
+                expiredFromPlan: oldPlan,
+                updatedAt: now.toISOString()
+              }, { merge: true });
+
+              // Update SQLite
+              db.prepare("INSERT OR REPLACE INTO subscriptions (user_id, plan, dueDateISO, dueDateFormatted, updatedAt) VALUES (?, 'free', NULL, NULL, ?)").run(userId, now.toISOString());
+
+              let userEmail = fsData.email || userId;
+              try {
+                const prof = db.prepare("SELECT email FROM profiles WHERE user_id = ?").get(userId) as any;
+                if (prof?.email) userEmail = prof.email;
+              } catch (_) {}
+
+              console.log(`[Auto-Expire Firestore]: User ${userEmail} (${userId}) plan reverted from ${oldPlan} to free.`);
+
+              // Check running bots limit
+              try {
+                const runningUserBots = db.prepare("SELECT id, name FROM bots WHERE owner_id = ? AND status = 'running'").all(userId) as any[];
+                if (runningUserBots.length > 2) {
+                  const excessBots = runningUserBots.slice(2);
+                  for (const b of excessBots) {
+                    stopBot(b.id).catch(() => {});
+                    addBotLog(b.id, 'system', `[Obuna]: ${oldPlan.toUpperCase()} obuna muddati tugab, bepul tarifga o'tganligi sababli ushbu bot avtomatik to'xtatildi.`);
+                  }
+                }
+              } catch (_) {}
+            }
+          }
+        } catch (fsCheckErr) {
+          handleFirestoreError(fsCheckErr, 'checkAndExpireSubscriptions firestore sweep');
+        }
+      }
     } catch (err: any) {
       console.warn("checkAndExpireSubscriptions error:", err?.message || err);
     }
   }
 
-  // Run subscription expiration check on startup & every 60 seconds (optimized for I/O)
+  // Run subscription expiration check on startup & every 30 seconds
   checkAndExpireSubscriptions();
-  setInterval(checkAndExpireSubscriptions, 60000);
+  setInterval(checkAndExpireSubscriptions, 30000);
 
   // Admin Routes
   app.post("/api/auth/sync", requireAuth, async (req: AuthRequest, res) => {

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
+import React, { Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { CallProvider } from './context/CallContext';
@@ -24,12 +24,24 @@ import { Terms } from './pages/Terms';
 import { Footer } from './components/Footer';
 import { Toaster } from './components/ui/sonner';
 
+const RouteLoadingFallback = () => (
+  <div className="flex-1 flex flex-col items-center justify-center min-h-[50vh] p-8 text-zinc-400">
+    <div className="w-8 h-8 border-2 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin mb-3" />
+    <span className="text-xs text-zinc-400 font-medium">Sahifa yuklanmoqda...</span>
+  </div>
+);
+
 const ProtectedRoute = ({ children, adminOnly = false }: { children: React.ReactNode, adminOnly?: boolean }) => {
   const { user, loading, isAdmin } = useAuth();
   
-  if (loading) return <div className="h-screen flex items-center justify-center">Yuklanmoqda...</div>;
-  if (!user) return <Navigate to="/auth" />;
-  if (adminOnly && !isAdmin) return <Navigate to="/" />;
+  if (loading) return (
+    <div className="h-[60vh] flex flex-col items-center justify-center text-zinc-400">
+      <div className="w-8 h-8 border-2 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin mb-3" />
+      <span className="text-xs">Profil tekshirilmoqda...</span>
+    </div>
+  );
+  if (!user) return <Navigate to="/auth" replace />;
+  if (adminOnly && !isAdmin) return <Navigate to="/" replace />;
   
   return <>{children}</>;
 };
@@ -42,19 +54,21 @@ function AppLayout() {
     <div className={`flex flex-col bg-background font-sans antialiased text-foreground ${isMessagesPage ? 'h-screen w-screen overflow-hidden' : 'min-h-screen'}`}>
       <Navbar />
       <main className={`flex-1 flex flex-col w-full overflow-hidden ${isMessagesPage ? 'h-[calc(100vh-4rem)]' : ''}`}>
-        <Routes>
-          <Route path="/" element={<Landing />} />
-          <Route path="/auth" element={<Auth />} />
-          <Route path="/reset-password" element={<ResetPassword />} />
-          <Route path="/pricing" element={<Pricing />} />
-          <Route path="/docs" element={<Docs />} />
-          <Route path="/terms" element={<Terms />} />
-          <Route path="/privacy" element={<Terms />} />
-          <Route path="/botly-ai" element={<ProtectedRoute><BotlyAi /></ProtectedRoute>} />
-          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-          <Route path="/admin" element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
-          <Route path="/messages" element={<ProtectedRoute><Messages /></ProtectedRoute>} />
-        </Routes>
+        <Suspense fallback={<RouteLoadingFallback />}>
+          <Routes>
+            <Route path="/" element={<Landing />} />
+            <Route path="/auth" element={<Auth />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/pricing" element={<Pricing />} />
+            <Route path="/docs" element={<Docs />} />
+            <Route path="/terms" element={<Terms />} />
+            <Route path="/privacy" element={<Terms />} />
+            <Route path="/botly-ai" element={<ProtectedRoute><BotlyAi /></ProtectedRoute>} />
+            <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/admin" element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
+            <Route path="/messages" element={<ProtectedRoute><Messages /></ProtectedRoute>} />
+          </Routes>
+        </Suspense>
       </main>
       {!isMessagesPage && <Footer />}
       <FeedbackModal />

@@ -9,7 +9,7 @@ import {
   signInWithCredential,
   GoogleAuthProvider 
 } from 'firebase/auth';
-import { auth, googleProvider } from '../lib/firebase';
+import { auth, googleProvider, browserPopupRedirectResolver } from '../lib/firebase';
 import { doc, serverTimestamp } from 'firebase/firestore';
 import { safeSetDoc, safeGetDoc } from '../lib/safeFirestore';
 import { db } from '../lib/firebase';
@@ -34,8 +34,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     // Process redirect sign-in if returning from redirect
-    getRedirectResult(auth).catch((err) => {
-      console.warn('Redirect sign-in check:', err?.message || err);
+    let isMounted = true;
+    getRedirectResult(auth, browserPopupRedirectResolver).then((result) => {
+      if (result?.user && isMounted) {
+        setUser(result.user);
+      }
+    }).catch((err) => {
+      // Benign redirect check warning
+      if (err?.code !== 'auth/null-user') {
+        console.warn('Redirect sign-in notice:', err?.message || err);
+      }
     });
 
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -67,6 +75,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               displayName: user.displayName || username,
               username: username.toLowerCase(),
               photoURL: photoURL,
+              isOnline: true,
+              lastSeen: serverTimestamp(),
               agreedToTerms: true,
               termsAgreedAt: new Date().toISOString(),
               updatedAt: serverTimestamp()
@@ -89,7 +99,54 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    // Real-time online heartbeat and visibility tracker for active users
+    let heartbeatInterval: any = null;
+    const updatePresence = (online: boolean) => {
+      if (auth.currentUser) {
+        const uid = auth.currentUser.uid;
+        const profileRef = doc(db, 'profiles', uid);
+        safeSetDoc(profileRef, {
+          isOnline: online,
+          lastSeen: serverTimestamp(),
+        }, { merge: true }).catch(() => {});
+      }
+    };
+
+    // Heartbeat every 45 seconds to keep presence fresh
+    heartbeatInterval = setInterval(() => {
+      if (document.visibilityState === 'visible' && auth.currentUser) {
+        updatePresence(true);
+      }
+    }, 45000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        updatePresence(true);
+      } else {
+        // Tab hidden / minimized
+        updatePresence(false);
+      }
+    };
+
+    const handleBeforeUnload = () => {
+      updatePresence(false);
+    };
+
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    // Safety fallback: if onAuthStateChanged is delayed, resolve loading after 2.5s
+    const authSafetyTimer = setTimeout(() => {
+      setLoading(false);
+    }, 2500);
+
+    return () => {
+      unsubscribe();
+      clearTimeout(authSafetyTimer);
+      if (heartbeatInterval) clearInterval(heartbeatInterval);
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
   }, []);
 
   const login = async () => {
@@ -97,11 +154,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       setIsAuthenticating(true);
       setLoading(true);
-      await signInWithPopup(auth, googleProvider);
+      await signInWithPopup(auth, googleProvider, browserPopupRedirectResolver);
     } catch (error: any) {
       if (error.code === 'auth/popup-blocked' || error.code === 'auth/cancelled-popup-request') {
         try {
-          await signInWithRedirect(auth, googleProvider);
+          await signInWithRedirect(auth, googleProvider, browserPopupRedirectResolver);
         } catch (redirErr) {
           console.warn('Redirect login warning:', redirErr);
         }

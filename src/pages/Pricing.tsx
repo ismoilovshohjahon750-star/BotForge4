@@ -248,35 +248,6 @@ export const Pricing: React.FC = () => {
         </p>
       </div>
 
-      {/* Telegram Stars Direct Payment Banner */}
-      <div className="max-w-4xl mx-auto mb-10 p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-yellow-500/10 to-amber-600/10 border border-amber-500/30 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl shadow-amber-950/20 backdrop-blur-sm">
-        <div className="flex items-center gap-3.5 text-left">
-          <div className="w-12 h-12 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 text-2xl font-bold shrink-0 shadow-inner">
-            ⭐️
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm sm:text-base font-bold text-white">Telegram Stars (⭐️) orqali to'lov</h3>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-400 text-slate-950 uppercase tracking-wider">
-                YANGI
-              </span>
-            </div>
-            <p className="text-xs text-slate-300 mt-0.5">
-              Rasmiy botimizda Stars orqali 1 soniyada xarid qiling! PRO (150 ⭐️) va VIP (350 ⭐️) avtomatik faollashadi.
-            </p>
-          </div>
-        </div>
-        <a
-          href={`https://t.me/${botUsername || 'CloudBotUz_bot'}?start=stars`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-md transition-all shrink-0 cursor-pointer"
-        >
-          <span>⭐️ Stars bilan to'lash</span>
-          <ExternalLink className="w-3.5 h-3.5" />
-        </a>
-      </div>
-
       {/* Pricing Cards Grid */}
       <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto items-stretch pt-4">
         {plans.map((plan) => {
@@ -527,26 +498,6 @@ export const Pricing: React.FC = () => {
                 <span className="bg-primary/20 text-primary px-2.5 py-0.5 rounded-full font-bold">
                   {selectedPlan.name} - {selectedPlan.price}
                 </span>
-              </div>
-
-              {/* Instant Telegram Stars callout */}
-              <div className="mx-6 mt-4 p-3 rounded-xl bg-gradient-to-r from-amber-500/15 to-yellow-500/10 border border-amber-500/30 flex items-center justify-between gap-3 text-xs">
-                <div className="flex items-center gap-2 text-amber-200">
-                  <span className="text-base">⭐️</span>
-                  <div>
-                    <div className="font-semibold text-white">Stars (XTR) bilan to'laysizmi?</div>
-                    <div className="text-[11px] text-amber-300/80">Botimizda 1 soniyada avtomatik faollashadi!</div>
-                  </div>
-                </div>
-                <a
-                  href={`https://t.me/${botUsername || 'CloudBotUz_bot'}?start=stars`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-[11px] whitespace-nowrap shadow-sm flex items-center gap-1 shrink-0"
-                >
-                  <span>Botda to'lash</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
               </div>
 
               {/* Form Content */}
