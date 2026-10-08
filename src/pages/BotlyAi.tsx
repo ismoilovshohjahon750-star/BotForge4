@@ -749,11 +749,11 @@ export const BotlyAi: React.FC = () => {
                       handleRestart();
                       setShowHistory(false);
                     }}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-indigo-300 hover:text-white text-xs font-medium transition-colors cursor-pointer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-600/30 transition-all cursor-pointer active:scale-95"
                     title="Yangi suhbat boshlash"
                   >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Yangi chat</span>
+                    <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                    <span>New chat</span>
                   </button>
 
                   {/* Clear Button */}

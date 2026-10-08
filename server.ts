@@ -3486,6 +3486,7 @@ ${interlocutorSection}
 
 📊 PLATFORMANING REAL JONLI STATISTIKASI:
 - Platforma: CloudBot.uz — Telegram va Discord botlar uchun 24/7 Cloud Hosting
+- Kompaniya / Tashkilot: SAM Corp (agar foydalanuvchi kompaniya nomi, korxona yoki qaysi kompaniyaga tegishli ekanligini so'rasa: "SAM Corp" deb ayting)
 - Asoschisi va dasturchi: Ismoilov Shohjahon (@shoh_deweloper, ismoilovshohjahon750@gmail.com)
 - Ro'yxatdan o'tgan foydalanuvchilar: ${totalUsers} ta
 - Joylashtirilgan jami botlar: ${totalBots} ta (Ayni paytda faol ishlayotgani: ${runningBots} ta)
@@ -8826,7 +8827,9 @@ QAT'IY QOIDALAR:
    - Platformadagi barcha to'lovlar (Pro, VIP tariflari) QAT'IY VA YAKUNIY bo'lib, to'lovlar QAYTARIB BERILMAYDI (No Refund). Foydalanuvchi obuna haqida so'rasa buni albatta ochiq tushuntiring.
    - To'liq shartlar va maxfiylik siyosati saytimizning /terms va /privacy sahifalarida batafsil keltirilgan.
    - Foydalanuvchi bot tokenlari shifrlangan holda xavfsiz saqlanadi, uchinchi shaxslarga berilmaydi.
-5. **Platforma imkoniyatlari**:
+5. **Platforma imkoniyatlari va Kompaniya**:
+   - Kompaniya nomi: **SAM Corp** (agar foydalanuvchi qaysi kompaniya, tashkilot yoki korxona deb so'rasa, "SAM Corp" deb aniq va faxr bilan ayting).
+   - Asoschisi va dasturchi: Ismoilov Shohjahon (@shoh_deweloper).
    - Dashboard (/dashboard): Botlarni yuklash, yoqish, to'xtatish, loglarni kuzatish.
    - Pricing (/pricing): Bepul (2 ta bot, 2 oy), Pro ($20/oy, 10 ta bot, 10 oy), VIP ($35/oy, 30 ta bot, cheksiz). To'lovlar qaytarilmaydi.`;
 
@@ -8953,7 +8956,9 @@ QAT'IY TALABLAR VA QOIDALAR:
    - Platformadagi barcha to'lovlar (Pro, VIP tariflari) QAT'IY VA YAKUNIY bo'lib, to'lovlar QAYTARIB BERILMAYDI (No Refund). Foydalanuvchi obuna haqida so'rasa buni albatta ochiq tushuntiring.
    - To'liq shartlar va maxfiylik siyosati saytimizning /terms va /privacy sahifalarida batafsil keltirilgan.
    - Foydalanuvchi bot tokenlari shifrlangan holda xavfsiz saqlanadi, uchinchi shaxslarga berilmaydi.
-5. **Platforma imkoniyatlari**:
+5. **Platforma imkoniyatlari va Kompaniya**:
+   - Kompaniya nomi: **SAM Corp** (agar foydalanuvchi qaysi kompaniya, tashkilot yoki korxona deb so'rasa, "SAM Corp" deb aniq va faxr bilan ayting).
+   - Asoschisi va dasturchi: Ismoilov Shohjahon (@shoh_deweloper).
    - Dashboard (/dashboard): Botlarni yuklash, yoqish, to'xtatish, loglarni kuzatish.
    - Pricing (/pricing): Bepul (2 ta bot, 2 oy), Pro ($20/oy, 10 ta bot, 10 oy), VIP ($35/oy, 30 ta bot, cheksiz). To'lovlar qaytarilmaydi.
    - Admin Panel (/admin): Administratorlar uchun boshqaruv.`;

@@ -1071,26 +1071,31 @@ export const Messages: React.FC = () => {
               </div>
             </div>
             
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-2">
               {messagesList.length > 0 && (
-                <>
-                  <button
-                    onClick={() => setShowDeleteAllModal(true)}
-                    className="p-2 text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-xl transition-colors"
-                    title={t('msg_clear_all', 'Barcha suhbatlarni tozalash')}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setIsNewModalOpen(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-black font-semibold text-xs rounded-xl shadow-lg shadow-cyan-500/20 transition-all cursor-pointer"
-                    title={t('msg_new_chat', 'Yangi suhbat ochish')}
-                  >
-                    <Plus className="w-4 h-4 stroke-[2.5]" />
-                    <span className="hidden sm:inline">{t('msg_new', 'Yangi')}</span>
-                  </button>
-                </>
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteAllModal(true)}
+                  className="p-2 text-zinc-400 hover:text-rose-400 hover:bg-rose-500/15 rounded-xl transition-colors cursor-pointer border border-white/5 hover:border-rose-500/30"
+                  title={t('msg_clear_all', 'Barcha suhbatlarni tozalash')}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
               )}
+              <button
+                type="button"
+                onClick={() => setIsNewModalOpen(true)}
+                style={{
+                  background: 'linear-gradient(135deg, #38bdf8 0%, #10b981 100%)',
+                  color: '#09090b',
+                  boxShadow: '0 4px 14px 0 rgba(56, 189, 248, 0.35)',
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 font-bold text-xs rounded-xl transition-all cursor-pointer hover:opacity-95 active:scale-95 border border-sky-200/40 shrink-0"
+                title={t('msg_new_chat', 'Yangi suhbat ochish')}
+              >
+                <Plus className="w-4 h-4 stroke-[3]" style={{ color: '#09090b' }} />
+                <span className="font-bold tracking-tight" style={{ color: '#09090b' }}>New chat</span>
+              </button>
             </div>
           </div>
 

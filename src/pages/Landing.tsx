@@ -6,6 +6,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '../context/LanguageContext';
 import { TechLeadersQuotes } from '../components/TechLeadersQuotes';
+import { NodeJsIcon, PythonIcon, GoIcon, RustIcon, RubyIcon, PhpIcon } from '../components/LanguageIcons';
 
 export const Landing: React.FC = () => {
   const { user } = useAuth();
@@ -127,43 +128,43 @@ export const Landing: React.FC = () => {
               {
                 name: 'Node.js',
                 ext: 'JS / TS',
-                icon: 'JS',
-                badgeColor: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 group-hover:border-emerald-400/60',
+                icon: <NodeJsIcon className="w-8 h-8" />,
+                badgeColor: 'bg-emerald-950/40 border-emerald-500/30 group-hover:border-emerald-400/60 shadow-emerald-500/10',
                 hoverGlow: 'group-hover:border-emerald-500/40 group-hover:shadow-emerald-950/40'
               },
               {
                 name: 'Python',
                 ext: 'v3.10+',
-                icon: 'PY',
-                badgeColor: 'bg-sky-500/10 text-sky-400 border-sky-500/30 group-hover:border-sky-400/60',
+                icon: <PythonIcon className="w-8 h-8" />,
+                badgeColor: 'bg-sky-950/40 border-sky-500/30 group-hover:border-sky-400/60 shadow-sky-500/10',
                 hoverGlow: 'group-hover:border-sky-500/40 group-hover:shadow-sky-950/40'
               },
               {
                 name: 'Go',
                 ext: 'Golang',
-                icon: 'GO',
-                badgeColor: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30 group-hover:border-cyan-400/60',
+                icon: <GoIcon className="w-9 h-9" />,
+                badgeColor: 'bg-cyan-950/40 border-cyan-500/30 group-hover:border-cyan-400/60 shadow-cyan-500/10',
                 hoverGlow: 'group-hover:border-cyan-500/40 group-hover:shadow-cyan-950/40'
               },
               {
                 name: 'Rust',
                 ext: 'Cargo',
-                icon: 'RS',
-                badgeColor: 'bg-amber-500/10 text-amber-400 border-amber-500/30 group-hover:border-amber-400/60',
+                icon: <RustIcon className="w-8 h-8" />,
+                badgeColor: 'bg-amber-950/40 border-amber-500/30 group-hover:border-amber-400/60 shadow-amber-500/10',
                 hoverGlow: 'group-hover:border-amber-500/40 group-hover:shadow-amber-950/40'
               },
               {
                 name: 'Ruby',
                 ext: 'Gems',
-                icon: 'RB',
-                badgeColor: 'bg-rose-500/10 text-rose-400 border-rose-500/30 group-hover:border-rose-400/60',
+                icon: <RubyIcon className="w-8 h-8" />,
+                badgeColor: 'bg-rose-950/40 border-rose-500/30 group-hover:border-rose-400/60 shadow-rose-500/10',
                 hoverGlow: 'group-hover:border-rose-500/40 group-hover:shadow-rose-950/40'
               },
               {
                 name: 'PHP',
                 ext: 'v8.2+',
-                icon: 'PHP',
-                badgeColor: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30 group-hover:border-indigo-400/60',
+                icon: <PhpIcon className="w-9 h-9" />,
+                badgeColor: 'bg-indigo-950/40 border-indigo-500/30 group-hover:border-indigo-400/60 shadow-indigo-500/10',
                 hoverGlow: 'group-hover:border-indigo-500/40 group-hover:shadow-indigo-950/40'
               }
             ].map(lang => (
@@ -171,7 +172,7 @@ export const Landing: React.FC = () => {
                 key={lang.name}
                 className={`group relative p-4 sm:p-5 rounded-2xl bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800/80 backdrop-blur-sm transition-all duration-300 flex flex-col items-center justify-center text-center shadow-md hover:shadow-xl hover:-translate-y-1 ${lang.hoverGlow}`}
               >
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xs font-mono font-extrabold mb-2.5 border transition-all duration-300 group-hover:scale-110 shadow-inner ${lang.badgeColor}`}>
+                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-3 border transition-all duration-300 group-hover:scale-110 shadow-md ${lang.badgeColor}`}>
                   {lang.icon}
                 </div>
                 <span className="font-mono font-bold text-sm text-zinc-100 group-hover:text-white transition-colors">
