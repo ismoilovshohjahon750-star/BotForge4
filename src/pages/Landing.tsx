@@ -6,7 +6,6 @@ import { useAuth } from '../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '../context/LanguageContext';
 import { TechLeadersQuotes } from '../components/TechLeadersQuotes';
-import { AdSenseBanner } from '../components/AdSenseBanner';
 import { NodeJsIcon, PythonIcon, GoIcon, RustIcon, RubyIcon, PhpIcon } from '../components/LanguageIcons';
 
 export const Landing: React.FC = () => {
@@ -220,11 +219,6 @@ export const Landing: React.FC = () => {
               </a>
             </div>
           </div>
-        </div>
-
-        {/* Google AdSense Section */}
-        <div className="container mx-auto max-w-4xl mt-10 px-4">
-          <AdSenseBanner />
         </div>
       </section>
     </div>
